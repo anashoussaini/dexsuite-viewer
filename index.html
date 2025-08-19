@@ -24,7 +24,8 @@
 
   *{ box-sizing:border-box; }
   html, body { margin:0; background:var(--bg); color:var(--fg); font-family:Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif }
-  /* FIX: let the page scroll naturally; bottom bar is not fixed anymore */
+
+  /* Scroll naturally (controls bar is not fixed) */
   .app{
     display:grid; grid-template-columns: 300px 1fr;
     grid-template-rows: auto 1fr auto;
@@ -32,10 +33,7 @@
       "sidebar header"
       "sidebar main"
       "controls controls";
-    gap:16px;
-    min-height:100vh; /* was height:100vh; -> removed */
-    height:auto;      /* allow natural page height */
-    padding:16px;
+    gap:16px; min-height:100vh; height:auto; padding:16px;
   }
 
   header{
@@ -69,7 +67,7 @@
   }
   .field input, .field select{ background:transparent; border:none; color:var(--fg); outline:none; font:inherit; }
 
-  /* Demo chips with include toggle + remove; UI shows renumbered names */
+  /* Demo chips (UI-renumbered) */
   .chips{ display:flex; flex-direction:column; gap:8px; overflow:auto; padding-right:4px; max-height:220px; }
   .chip{
     display:flex; align-items:center; justify-content:space-between; gap:8px;
@@ -114,7 +112,7 @@
   .spacer{ flex:1; }
   .tag{ padding:4px 8px; border-radius:8px; background:var(--chip); border:1px solid var(--ring); color:var(--muted); font-size:12px; }
 
-  /* Progress overlay for exports */
+  /* Overlay */
   .overlay{
     position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     background:rgba(0,0,0,.55); z-index:9999;
@@ -183,7 +181,11 @@
         <button id="downloadPrunedBtn" class="btn" title="Download pruned HDF5">⬇ Pruned</button>
       </div>
       <div class="check-row" style="margin-top:6px;">
-        <button id="downloadScriptBtn" class="btn" title="Download pruning Python script">⬇ Python script</button>
+        <button id="downloadRoboBtn" class="btn" title="Convert to robomimic and download">⬇ Robomimic</button>
+      </div>
+      <div class="check-row" style="margin-top:6px;">
+        <button id="downloadScriptBtn" class="btn" title="Download pruning Python script">⬇ Prune script</button>
+        <button id="downloadRoboScriptBtn" class="btn" title="Download robomimic Python script">⬇ Robo script</button>
       </div>
     </div>
   </aside>
@@ -214,7 +216,7 @@
     </section>
   </section>
 
-  <!-- Controls (scrolls with page) -->
+  <!-- Controls -->
   <section class="controls">
     <button id="playBtn" class="play">▶ Play</button>
     <input id="mainSlider" class="slider" type="range" min="0" value="0" max="1" step="1"/>
@@ -237,7 +239,7 @@
   </section>
 </div>
 
-<!-- Progress overlay for export -->
+<!-- Overlay -->
 <div class="overlay" id="overlay">
   <div class="box">
     <div id="overlayMsg">Preparing export…</div>
@@ -251,13 +253,15 @@
   import { uploader, UPLOADED_FILES, download } from "https://cdn.jsdelivr.net/npm/h5wasm@0.4.9/dist/esm/file_handlers.js";
   const Module = await h5wasm.ready;
 
-  // ---- UI refs
+  /* ---------- refs ---------- */
   const body = document.body;
   const themeToggle = document.getElementById('themeToggle');
   const fileInput = document.getElementById('fileInput');
   const downloadOrigBtn = document.getElementById('downloadOrigBtn');
   const downloadPrunedBtn = document.getElementById('downloadPrunedBtn');
+  const downloadRoboBtn = document.getElementById('downloadRoboBtn');
   const downloadScriptBtn = document.getElementById('downloadScriptBtn');
+  const downloadRoboScriptBtn = document.getElementById('downloadRoboScriptBtn');
   const renumberToggle = document.getElementById('renumberToggle');
   const fastModeCB = document.getElementById('fastMode');
   const fileInfo  = document.getElementById('fileInfo');
@@ -289,80 +293,35 @@
   const overlayMsg = document.getElementById('overlayMsg');
   const overlayBar = document.getElementById('overlayBar');
 
-  // ---- State
+  /* ---------- state ---------- */
   let h5file = null;
   let sourceFilename = null;
-
-  // Map UI-renumbered names <-> original names
-  // uiNames: ["demo_00000","demo_00001", ...] -> srcNames: ["demo_00004", "demo_00001", ...]
-  let uiNames = [];
-  let srcNames = [];
-  let include = new Set();   // UI names included for export
-  let removed = new Set();   // UI names removed (session only)
+  let uiNames = [], srcNames = [];
+  let include = new Set(), removed = new Set();
   let currentUI = null;
 
   const state = {
     imageSrc: 'obs',
     availableCams: [], selectedCams: [], camDS: {},
-    // time-series datasets
     g_qpos:null, g_qvel:null, g_qtorque:null, g_tcp_pose:null,
     m_qpos:null, m_qvel:null, m_qtorque:null,
     eef_pose:null, other_goal:null, other_cube:null, actions:null,
-    T:0, H:224, W:224, t:0,
-    _eefX:[], _eefY:[], _eefZ:[]
+    T:0, H:224, W:224, t:0, _eefX:[], _eefY:[], _eefZ:[]
   };
-
   const playback = { running:false, speed:1.0, dt:0.01, raf:null, last:0, acc:0 };
 
-  // ---- Helpers
+  /* ---------- utils ---------- */
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const range = n => Array.from({length:n}, (_,i)=>i);
-  const nextTick =()=> new Promise(r=>setTimeout(r,0));
+  const sec = n => (Math.round(n*100)/100).toFixed(2) + "s";
   const verticalLine = (x, color="#0066ff") => [{ type:"line", x0:x,x1:x,y0:0,y1:1, xref:"x", yref:"paper", line:{color, width:2, dash:"dot"} }];
-  function sec(n){ return (Math.round(n*100)/100).toFixed(2) + "s"; }
+  const nextTick =()=> new Promise(r=>setTimeout(r,0));
 
-  // Canvas buffers cache (speed)
-  const canvasCache = new Map(); // name -> { tmp, ctx, rgba, lastW, lastH }
-  function getCanvasBuffers(name, W, H){
-    const key = `${name}:${W}x${H}`;
-    let c = canvasCache.get(key);
-    if(!c){
-      const tmp = document.createElement('canvas');
-      tmp.width = W; tmp.height = H;
-      const ctx = tmp.getContext('2d', { willReadFrequently:false });
-      const rgba = new Uint8ClampedArray(W*H*4);
-      c = { tmp, ctx, rgba, lastW:W, lastH:H };
-      canvasCache.set(key, c);
-    }
-    return c;
-  }
-  function drawRGBToCanvas(canvas, flat, W, H){
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width  = Math.max(1, Math.floor(rect.width * dpr));
-    canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-
-    const { tmp, ctx:tmpCtx, rgba } = getCanvasBuffers(canvas.id, W, H);
-    // fill RGBA (reuse buffer)
-    for(let i=0, j=0; i<W*H; i++){
-      rgba[j++] = flat[i*3+0];
-      rgba[j++] = flat[i*3+1];
-      rgba[j++] = flat[i*3+2];
-      rgba[j++] = 255;
-    }
-    tmpCtx.putImageData(new ImageData(rgba, W, H), 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(tmp, 0, 0, rect.width, rect.height);
-  }
-
-  // ---- Theme toggle
+  /* ---------- theme ---------- */
   function setTheme(next){
     body.setAttribute('data-theme', next);
     themeToggle.textContent = (next === 'dark') ? '🌙' : '☀️';
-    const tpl = (next === 'dark') ? 'plotly_dark' : 'plotly_white';
-    const common = { template: tpl, paper_bgcolor:'transparent', plot_bgcolor:'transparent' };
+    const common = { template: (next==='dark' ? 'plotly_dark':'plotly_white'), paper_bgcolor:'transparent', plot_bgcolor:'transparent' };
     Plotly.relayout(gripperPlotEl, common);
     Plotly.relayout(manipPlotEl,   common);
     Plotly.relayout(eefPlotEl,     common);
@@ -372,7 +331,7 @@
     setTheme(curr === 'dark' ? 'light' : 'dark');
   });
 
-  // ---- File loading
+  /* ---------- file load ---------- */
   fileInput.addEventListener('change', async (e)=>{
     await uploader(e);
     sourceFilename = UPLOADED_FILES.at(-1);
@@ -381,25 +340,21 @@
     fileInfo.textContent = `Loaded: ${sourceFilename}`;
     initFile();
   });
-
-  // Download original
   downloadOrigBtn.addEventListener('click', ()=> { if(h5file) download(h5file); });
 
-  // ---- Read structure and build UI (renumbered list)
+  /* ---------- demo list / mapping ---------- */
   function listSrcDemos(){
     const keys = h5file.get('data').keys();
-    return keys.filter(k=>k.startsWith('demo_')).sort((a,b)=>{
-      const ia = parseInt(a.split('_').pop().replace(/^0+/,'' )||'0',10);
-      const ib = parseInt(b.split('_').pop().replace(/^0+/,'' )||'0',10);
-      return ia - ib;
+    const demos = keys.filter(k=>k.startsWith('demo_'));
+    // numeric sort even if not padded
+    return demos.sort((a,b)=>{
+      const na = parseInt(a.split('_').pop().replace(/^0+/,'')||'0',10);
+      const nb = parseInt(b.split('_').pop().replace(/^0+/,'')||'0',10);
+      return na-nb;
     });
   }
-  function buildMappings(){
-    srcNames = listSrcDemos();
-    uiNames = srcNames.map((_,i)=> `demo_${String(i).padStart(5,'0')}`);
-  }
-  function uiToSrc(ui){ const idx = uiNames.indexOf(ui); return idx>=0 ? srcNames[idx] : null; }
-  function srcToUi(src){ const idx = srcNames.indexOf(src); return idx>=0 ? uiNames[idx] : null; }
+  function buildMappings(){ srcNames = listSrcDemos(); uiNames = srcNames.map((_,i)=> `demo_${String(i).padStart(5,'0')}`); }
+  const uiToSrc = ui => srcNames[uiNames.indexOf(ui)] ?? null;
 
   function buildDemoChip(uiName){
     const div = document.createElement('div'); div.className='chip';
@@ -423,134 +378,97 @@
 
   function initFile(){
     buildMappings();
-    // default include all visible (not removed)
     if(include.size===0) uiNames.forEach(n=> { if(!removed.has(n)) include.add(n); });
-    // rebuild list
     demoChips.innerHTML='';
-    uiNames.forEach(ui=>{
-      if(removed.has(ui)) return;
-      demoChips.appendChild(buildDemoChip(ui));
-    });
+    uiNames.forEach(ui=>{ if(!removed.has(ui)) demoChips.appendChild(buildDemoChip(ui)); });
 
     // env tag
     let env = '—';
     try{
       const envArgs = h5file.get('data').attrs['env_args']?.value;
-      if(envArgs) {
-        const meta = (typeof envArgs === 'string') ? JSON.parse(envArgs) : envArgs;
-        env = (meta.env_name || meta.env || '—');
-      }
+      if(envArgs) { const meta = (typeof envArgs==='string') ? JSON.parse(envArgs) : envArgs; env = meta.env_name || '—'; }
     }catch(_){}
-    document.getElementById('envTag').textContent = `env: ${env}`;
+    envTag.textContent = `env: ${env}`;
 
-    // select first available
     const first = uiNames.find(n=>!removed.has(n));
     if(first) selectDemo(first);
   }
 
-  // discover cameras under obs
+  /* ---------- cameras & plots (unchanged fast viewer) ---------- */
   function discoverCameras(uiName){
     const src = uiToSrc(uiName);
-    const obs = h5file.get(`data/${src}/obs`);
-    const keys = obs.keys();
-    const cams = keys.filter(k=>k.endsWith('_image'));
-
-    // defaults: prefer the classic four
-    const pref = ["front_image","left_side_image","overhead_image","right_side_image"];
-    const sel = []; pref.forEach(p=>{ if(cams.includes(p)) sel.push(p); });
-    const rem = cams.filter(k=>!sel.includes(k)).slice(0, Math.max(0, 4 - sel.length));
-    return { cams, selected: [...sel, ...rem].slice(0,8) };
+    // Prefer obs images; if absent, fall back to legacy cameras
+    let base = `data/${src}/obs`;
+    let cams = [];
+    try{
+      cams = h5file.get(base).keys().filter(k=>k.endsWith('_image'));
+    }catch(_){}
+    if(cams.length===0){
+      // legacy
+      base = `data/${src}/cameras`;
+      try{ cams = h5file.get(base).keys(); }catch(_){}
+    }
+    // prefer classic 4
+    const pref = ["front_image","left_side_image","overhead_image","right_side_image","front","left_side","overhead","right_side"];
+    const selected = [];
+    pref.forEach(p=>{ if(cams.includes(p)) selected.push(p); });
+    cams.forEach(c=>{ if(selected.length<8 && !selected.includes(c)) selected.push(c); });
+    return { cams, selected: selected.slice(0,8) };
   }
 
-  async function selectDemo(uiName){
-    currentUI = uiName;
-    demoName.textContent = uiName;
-
-    state.imageSrc = imgSrcSel.value || 'obs';
-    const { cams, selected } = discoverCameras(uiName);
-    state.availableCams = cams.slice(0,8);
-    state.selectedCams = selected;
-    state.camDS = {};
-
-    // checklist
-    camChecklist.innerHTML='';
-    state.availableCams.forEach((name,i)=>{
-      const id = `cam_${i}`;
-      const row = document.createElement('label');
-      row.innerHTML = `<input type="checkbox" id="${id}" ${selected.includes(name)?'checked':''}> <span>${name}</span>`;
-      camChecklist.appendChild(row);
-      document.getElementById(id).addEventListener('change', rebuildCams);
-    });
-    selectAllCams.onclick = ()=>{ [...camChecklist.querySelectorAll('input')].forEach(cb=>cb.checked=true); rebuildCams(); };
-    clearCams.onclick = ()=>{ [...camChecklist.querySelectorAll('input')].forEach(cb=>cb.checked=false); rebuildCams(); };
-
-    // timeseries (from obs)
-    const src = uiToSrc(uiName);
-    const base = `data/${src}/obs`;
-    const safeGet = (k)=>{ try{ return h5file.get(`${base}/${k}`); } catch{ return null; } };
-    state.g_qpos    = safeGet('gripper_qpos');
-    state.g_qvel    = safeGet('gripper_qvel');
-    state.g_qtorque = safeGet('gripper_qtorque');
-    state.g_tcp_pose= safeGet('gripper_tcp_pose');
-
-    state.m_qpos    = safeGet('manipulator_qpos');
-    state.m_qvel    = safeGet('manipulator_qvel');
-    state.m_qtorque = safeGet('manipulator_qtorque');
-
-    state.eef_pose  = safeGet('manipulator_eef_pose');
-    state.other_goal= safeGet('other_goal_pos');
-    state.other_cube= safeGet('other_cube_pos');
-
-    try{ state.actions = h5file.get(`data/${src}/actions`); } catch{ state.actions = null; }
-
-    buildAdvancedSignals();
-    rebuildCams();
-    await buildPlots();
-    await renderFrame(0, true);
-
-    const dt = Number(dtInput.value) || 0.01;
-    kpiTime.textContent = sec(state.T * dt);
+  const canvasCache = new Map();
+  function getCanvasBuffers(name, W, H){
+    const key = `${name}:${W}x${H}`;
+    let c = canvasCache.get(key);
+    if(!c){
+      const tmp = document.createElement('canvas'); tmp.width=W; tmp.height=H;
+      const ctx = tmp.getContext('2d');
+      const rgba = new Uint8ClampedArray(W*H*4);
+      c = { tmp, ctx, rgba }; canvasCache.set(key, c);
+    }
+    return c;
   }
+  function drawRGBToCanvas(canvas, flat, W, H){
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width  = Math.max(1, Math.floor(rect.width * dpr));
+    canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+    ctx.setTransform(dpr,0,0,dpr,0,0);
 
-  function buildAdvancedSignals(){
-    const adv = document.getElementById('advSignals');
-    adv.innerHTML='';
-    const options = [
-      { id:'gvel', label:'gripper_qvel', present: !!state.g_qvel, group:'gripper' },
-      { id:'gtau', label:'gripper_qtorque', present: !!state.g_qtorque, group:'gripper' },
-      { id:'gtcp', label:'gripper_tcp_pose', present: !!state.g_tcp_pose, group:'gripper' },
-      { id:'mvel', label:'manipulator_qvel', present: !!state.m_qvel, group:'manip' },
-      { id:'mtau', label:'manipulator_qtorque', present: !!state.m_qtorque, group:'manip' },
-      { id:'act',  label:'actions', present: !!state.actions, group:'manip' },
-      { id:'goal', label:'other_goal_pos (3D markers)', present: !!state.other_goal, group:'eef' },
-      { id:'cube', label:'other_cube_pos (3D markers)', present: !!state.other_cube, group:'eef' },
-    ];
-    options.forEach(opt=>{
-      if(!opt.present) return;
-      const lab = document.createElement('label');
-      lab.innerHTML = `<input type="checkbox" data-group="${opt.group}" data-id="${opt.id}"> <span>${opt.label}</span>`;
-      adv.appendChild(lab);
-    });
-    adv.addEventListener('change', ()=> buildPlots());
+    const { tmp, ctx:tmpCtx, rgba } = getCanvasBuffers(canvas.id, W, H);
+    for(let i=0, j=0; i<W*H; i++){
+      rgba[j++] = flat[i*3+0];
+      rgba[j++] = flat[i*3+1];
+      rgba[j++] = flat[i*3+2];
+      rgba[j++] = 255;
+    }
+    tmpCtx.putImageData(new ImageData(rgba, W, H), 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(tmp, 0, 0, rect.width, rect.height);
   }
 
   function rebuildCams(){
-    // selected
+    const src = uiToSrc(currentUI);
+    state.imageSrc = imgSrcSel.value || 'obs';
     state.selectedCams = [];
     [...camChecklist.querySelectorAll('label')].forEach(row=>{
       const cb = row.querySelector('input'); const name = row.querySelector('span').textContent;
       if(cb.checked) state.selectedCams.push(name);
     });
-
-    // datasets from current image source
-    const src = uiToSrc(currentUI);
-    const base = `data/${src}/${state.imageSrc}`;
+    // pick base path
+    let base = `data/${src}/${state.imageSrc}`;
+    let cameraAreLegacy = false;
+    try{ h5file.get(base).keys(); } catch(_){ base = `data/${src}/cameras`; cameraAreLegacy = true; }
     state.camDS = {};
     for(const name of state.selectedCams){
-      try{ state.camDS[name] = h5file.get(`${base}/${name}`); } catch(_){}
+      try{
+        const key = cameraAreLegacy ? name : name; // legacy cameras already named e.g. "front"
+        state.camDS[name] = h5file.get(`${base}/${key}`);
+      }catch(_){}
     }
 
-    // camera cards
+    // cards
     camsGrid.innerHTML='';
     state.selectedCams.forEach(name=>{
       const card = document.createElement('div'); card.className = 'cam-card';
@@ -561,26 +479,65 @@
 
     // T/H/W
     let T = Infinity, H = 224, W = 224;
-    if(state.g_qpos)   T = Math.min(T, state.g_qpos.shape[0]);
-    if(state.m_qpos)   T = Math.min(T, state.m_qpos.shape[0]);
-    if(state.eef_pose) T = Math.min(T, state.eef_pose.shape[0]);
-    for(const name of state.selectedCams){
-      const ds = state.camDS[name]; if(!ds) continue;
-      T = Math.min(T, ds.shape[0]); H = ds.shape[1]; W = ds.shape[2];
-    }
-    if(!isFinite(T)) T = 0;
-    state.T = T; state.H = H; state.W = W; state.t = 0;
-    slider.max = String(Math.max(0, T-1)); slider.value = "0";
-    kpiFrames.textContent = String(T); kpiTMax.textContent = String(Math.max(0, T-1));
+    const safeT = ds => ds ? ds.shape[0] : Infinity;
+    for(const name of state.selectedCams){ const ds = state.camDS[name]; if(ds){ T = Math.min(T, ds.shape[0]); H = ds.shape[1]; W = ds.shape[2]; } }
+    try{ const ds = h5file.get(`data/${src}/actions`); T = Math.min(T, ds.shape[0]); }catch(_){}
+    state.T = isFinite(T) ? T : 0; state.H = H; state.W = W; state.t=0;
+    slider.max = String(Math.max(0, state.T-1)); slider.value="0";
+    kpiFrames.textContent = String(state.T); kpiTMax.textContent = String(Math.max(0, state.T-1));
   }
 
-  imgSrcSel.addEventListener('change', ()=>{
-    state.imageSrc = imgSrcSel.value;
-    rebuildCams();
-    renderFrame(0, true);
-  });
+  function buildAdvancedSignals(){
+    const adv = document.getElementById('advSignals'); adv.innerHTML='';
+    const src = uiToSrc(currentUI);
+    const base = `data/${src}/obs`;
+    const present = k => { try{ h5file.get(`${base}/${k}`); return true; }catch(_){ return false; } };
+    const options = [
+      { id:'gvel', label:'gripper_qvel', present: present('gripper_qvel'), group:'gripper' },
+      { id:'gtau', label:'gripper_qtorque', present: present('gripper_qtorque'), group:'gripper' },
+      { id:'gtcp', label:'gripper_tcp_pose', present: present('gripper_tcp_pose'), group:'gripper' },
+      { id:'mvel', label:'manipulator_qvel', present: present('manipulator_qvel'), group:'manip' },
+      { id:'mtau', label:'manipulator_qtorque', present: present('manipulator_qtorque'), group:'manip' },
+      { id:'act',  label:'actions (manip)', present: true, group:'manip' },
+      { id:'goal', label:'other_goal_pos (3D markers)', present: present('other_goal_pos'), group:'eef' },
+      { id:'cube', label:'other_cube_pos (3D markers)', present: present('other_cube_pos'), group:'eef' },
+    ];
+    options.forEach(opt=>{
+      if(!opt.present) return;
+      const lab = document.createElement('label');
+      lab.innerHTML = `<input type="checkbox" data-group="${opt.group}" data-id="${opt.id}"> <span>${opt.label}</span>`;
+      adv.appendChild(lab);
+    });
+    adv.addEventListener('change', ()=> buildPlots());
+  }
 
-  // ---- Faster plot builders (optional downsampling)
+  async function selectDemo(uiName){
+    currentUI = uiName; demoName.textContent = uiName;
+
+    // cameras list
+    const { cams, selected } = discoverCameras(uiName);
+    camChecklist.innerHTML='';
+    cams.slice(0,8).forEach((name,i)=>{
+      const id = `cam_${i}`;
+      const row = document.createElement('label');
+      row.innerHTML = `<input type="checkbox" id="${id}" ${selected.includes(name)?'checked':''}> <span>${name}</span>`;
+      camChecklist.appendChild(row);
+      document.getElementById(id).addEventListener('change', rebuildCams);
+    });
+    selectAllCams.onclick = ()=>{ [...camChecklist.querySelectorAll('input')].forEach(cb=>cb.checked=true); rebuildCams(); };
+    clearCams.onclick = ()=>{ [...camChecklist.querySelectorAll('input')].forEach(cb=>cb.checked=false); rebuildCams(); };
+
+    // build plots from obs where available
+    buildAdvancedSignals();
+    rebuildCams();
+    await buildPlots();
+    await renderFrame(0, true);
+
+    const dt = Number(dtInput.value) || 0.01;
+    kpiTime.textContent = sec((state.T||0) * dt);
+  }
+
+  /* ---------- plots ---------- */
   const MAX_PLOT_POINTS = 1500;
   function maybeDownsample(xArr, seriesArrays){
     if(!fastModeCB.checked) return { x:xArr, ys:seriesArrays };
@@ -596,132 +553,89 @@
   }
 
   async function buildPlots(){
-    const T = state.T, tvec = range(T);
+    const src = uiToSrc(currentUI);
+    const base = `data/${src}`;
+    let T = 0, tvec=[];
+    try{ const a = h5file.get(`${base}/actions`); T = a.shape[0]; tvec = range(T); }catch(_){}
+
     const tpl = (body.getAttribute('data-theme')==='dark') ? 'plotly_dark' : 'plotly_white';
     const common = { template: tpl, margin:{l:40,r:8,t:24,b:28}, paper_bgcolor:'transparent', plot_bgcolor:'transparent' };
     const advOn = id => !!document.querySelector(`#advSignals input[data-id="${id}"]`)?.checked;
 
     // Gripper
     const gpTraces = [];
-    if(state.g_qpos){
-      const D = state.g_qpos.shape[1], flat = state.g_qpos.value; // small arrays, OK
-      const ys = [];
-      for(let j=0;j<D;j++){
-        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y);
-      }
-      const ds = maybeDownsample(tvec, ys);
-      ds.ys.forEach((y, j)=> gpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`q${j}`, line:{width:1.6} }));
+    for(const key of ['gripper_qpos','gripper_qvel','gripper_qtorque','gripper_tcp_pose']){
+      const present = (key==='gripper_qpos') || advOn(key.includes('vel')?'gvel':key.includes('torque')?'gtau':'gtcp');
+      if(!present) continue;
+      try{
+        const d = h5file.get(`${base}/obs/${key}`); const D = d.shape[1];
+        const flat = d.value; const ys = [];
+        for(let j=0;j<D;j++){ const y=new Array(T); for(let t=0;t<T;t++) y[t]=flat[t*D+j]; ys.push(y); }
+        const ds = maybeDownsample(tvec, ys);
+        ds.ys.forEach((y, j)=> gpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`${key.split('_')[1]}${j}`, line:{width: key==='gripper_qpos'?1.6:1, dash: key==='gripper_qpos'?'solid':'dot'} }));
+      }catch(_){}
     }
-    if(advOn('gvel') && state.g_qvel){
-      const D = state.g_qvel.shape[1], flat = state.g_qvel.value;
-      const ys = [];
-      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
-      const ds = maybeDownsample(tvec, ys);
-      ds.ys.forEach((y, j)=> gpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`vel${j}`, line:{width:1, dash:'dot'} }));
-    }
-    if(advOn('gtau') && state.g_qtorque){
-      const D = state.g_qtorque.shape[1], flat = state.g_qtorque.value;
-      const ys = [];
-      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
-      const ds = maybeDownsample(tvec, ys);
-      ds.ys.forEach((y, j)=> gpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`tau${j}`, line:{width:1, dash:'dash'} }));
-    }
-    if(advOn('gtcp') && state.g_tcp_pose){
-      const D = state.g_tcp_pose.shape[1], flat = state.g_tcp_pose.value;
-      const ys = [];
-      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
-      const ds = maybeDownsample(tvec, ys);
-      ds.ys.forEach((y, j)=> gpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`tcp${j}`, line:{width:1, dash:'dot'} }));
-    }
-    await Plotly.react(gripperPlotEl, gpTraces, {
-      ...common, showlegend:true, legend:{orientation:'h', yanchor:'bottom', y:1.02, x:0},
-      xaxis:{ title:'timestep', rangemode:'nonnegative', showgrid:true },
-      yaxis:{ title:'gripper', showgrid:true },
-      shapes: verticalLine(0)
-    }, {displayModeBar:false, responsive:true});
+    await Plotly.react(gripperPlotEl, gpTraces, { ...common, showlegend:true, legend:{orientation:'h', yanchor:'bottom', y:1.02, x:0}, xaxis:{ title:'timestep' }, yaxis:{ title:'gripper' }, shapes: verticalLine(0) }, {displayModeBar:false, responsive:true});
 
     // Manip
     const mpTraces = [];
-    if(state.m_qpos){
-      const D = state.m_qpos.shape[1], flat = state.m_qpos.value;
-      const ys = [];
-      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
-      const ds = maybeDownsample(tvec, ys);
-      ds.ys.forEach((y, j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`q${j}`, line:{width:1.6} }));
+    for(const [key,lab] of [['manipulator_qpos','q'],['manipulator_qvel','vel'],['manipulator_qtorque','tau']]){
+      const present = (key==='manipulator_qpos') || advOn(key.includes('vel')?'mvel':'mtau');
+      if(!present) continue;
+      try{
+        const d = h5file.get(`${base}/obs/${key}`); const D = d.shape[1]; const flat = d.value; const ys=[];
+        for(let j=0;j<D;j++){ const y=new Array(T); for(let t=0;t<T;t++) y[t]=flat[t*D+j]; ys.push(y); }
+        const ds = maybeDownsample(tvec, ys);
+        ds.ys.forEach((y, j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`${lab}${j}`, line:{width: key==='manipulator_qpos'?1.6:1, dash:key==='manipulator_qpos'?'solid':'dot'} }));
+      }catch(_){}
     }
-    if(advOn('mvel') && state.m_qvel){
-      const D = state.m_qvel.shape[1], flat = state.m_qvel.value;
-      const ys = [];
-      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
+    // actions overlay
+    if(advOn('act')) try{
+      const a = h5file.get(`${base}/actions`); const A=a.shape[1]; const flat=a.value; const ys=[];
+      for(let j=0;j<A;j++){ const y=new Array(T); for(let t=0;t<T;t++) y[t]=flat[t*A+j]; ys.push(y); }
       const ds = maybeDownsample(tvec, ys);
-      ds.ys.forEach((y, j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`vel${j}`, line:{width:1, dash:'dot'} }));
-    }
-    if(advOn('mtau') && state.m_qtorque){
-      const D = state.m_qtorque.shape[1], flat = state.m_qtorque.value;
-      const ys = [];
-      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
-      const ds = maybeDownsample(tvec, ys);
-      ds.ys.forEach((y, j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`tau${j}`, line:{width:1, dash:'dash'} }));
-    }
-    if(advOn('act') && state.actions){
-      const D = state.actions.shape[1], flat = state.actions.value;
-      const ys = [];
-      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
-      const ds = maybeDownsample(tvec, ys);
-      ds.ys.forEach((y, j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`a${j}`, line:{width:1, dash:'dot'} }));
-    }
-    await Plotly.react(manipPlotEl, mpTraces, {
-      ...common, showlegend:true, legend:{orientation:'h', yanchor:'bottom', y:1.02, x:0},
-      xaxis:{ title:'timestep', rangemode:'nonnegative', showgrid:true },
-      yaxis:{ title:'manipulator', showgrid:true },
-      shapes: verticalLine(0)
-    }, {displayModeBar:false, responsive:true});
+      ds.ys.forEach((y,j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`a${j}`, line:{width:1, dash:'dot'} }));
+    }catch(_){}
+    await Plotly.react(manipPlotEl, mpTraces, { ...common, showlegend:true, legend:{orientation:'h', yanchor:'bottom', y:1.02, x:0}, xaxis:{ title:'timestep' }, yaxis:{ title:'manipulator' }, shapes: verticalLine(0) }, {displayModeBar:false, responsive:true});
 
-    // EEF 3D (downsample in fast mode)
-    const x=[], y=[], z=[];
-    if(state.eef_pose){
-      const flat = state.eef_pose.value;
-      for(let t=0;t<T;t++){ x.push(flat[t*6+0]); y.push(flat[t*6+1]); z.push(flat[t*6+2]); }
-    }
-    let x3=x, y3=y, z3=z;
+    // EEF 3D
+    const traces = []; let x=[],y=[],z=[];
+    try{
+      const e = h5file.get(`${base}/obs/manipulator_eef_pose`).value;
+      x = []; y = []; z = [];
+      for(let t=0;t<T;t++){ x.push(e[t*6+0]); y.push(e[t*6+1]); z.push(e[t*6+2]); }
+    }catch(_){}
+    let x3=x,y3=y,z3=z;
     if(fastModeCB.checked && x.length>MAX_PLOT_POINTS){
       const stride = Math.ceil(x.length / MAX_PLOT_POINTS);
-      x3 = []; y3 = []; z3 = [];
-      for(let i=0;i<x.length;i+=stride){ x3.push(x[i]); y3.push(y[i]); z3.push(z[i]); }
+      x3=[];y3=[];z3=[]; for(let i=0;i<x.length;i+=stride){ x3.push(x[i]); y3.push(y[i]); z3.push(z[i]); }
     }
-    const traces = [
-      { type:'scatter3d', mode:'lines', x:x3, y:y3, z:z3, line:{width:2, color:'rgba(0,102,255,0.25)'}, name:'full' },
-      { type:'scatter3d', mode:'lines', x:[x3[0]], y:[y3[0]], z:[z3[0]], line:{width:4, color:'rgba(0,102,255,1.0)'}, name:'played' },
-      { type:'scatter3d', mode:'markers', x:[x3[0]], y:[y3[0]], z:[z3[0]], marker:{size:3}, name:'current' }
-    ];
-    if(document.querySelector('#advSignals input[data-id="goal"]')?.checked && state.other_goal){
-      const g = state.other_goal.value; const gx=[], gy=[], gz=[];
-      for(let t=0;t<T;t++){ gx.push(g[t*3+0]); gy.push(g[t*3+1]); gz.push(g[t*3+2]); }
-      if(fastModeCB.checked && gx.length>MAX_PLOT_POINTS){
-        const stride = Math.ceil(gx.length / MAX_PLOT_POINTS);
-        const gx2=[], gy2=[], gz2=[]; for(let i=0;i<gx.length;i+=stride){ gx2.push(gx[i]); gy2.push(gy[i]); gz2.push(gz[i]); }
-        traces.push({ type:'scatter3d', mode:'markers', x:gx2, y:gy2, z:gz2, marker:{size:2}, name:'goal' });
-      } else {
-        traces.push({ type:'scatter3d', mode:'markers', x:gx, y:gy, z:gz, marker:{size:2}, name:'goal' });
-      }
-    }
-    if(document.querySelector('#advSignals input[data-id="cube"]')?.checked && state.other_cube){
-      const c = state.other_cube.value; const cx=[], cy=[], cz=[];
-      for(let t=0;t<T;t++){ cx.push(c[t*3+0]); cy.push(c[t*3+1]); cz.push(c[t*3+2]); }
-      if(fastModeCB.checked && cx.length>MAX_PLOT_POINTS){
-        const stride = Math.ceil(cx.length / MAX_PLOT_POINTS);
-        const cx2=[], cy2=[], cz2=[]; for(let i=0;i<cx.length;i+=stride){ cx2.push(cx[i]); cy2.push(cy[i]); cz2.push(cz[i]); }
-        traces.push({ type:'scatter3d', mode:'markers', x:cx2, y:cy2, z:cz2, marker:{size:2}, name:'cube' });
-      } else {
-        traces.push({ type:'scatter3d', mode:'markers', x:cx, y:cy, z:cz, marker:{size:2}, name:'cube' });
-      }
-    }
+    traces.push({ type:'scatter3d', mode:'lines', x:x3, y:y3, z:z3, line:{width:2, color:'rgba(0,102,255,0.25)'} });
+    traces.push({ type:'scatter3d', mode:'lines', x:[x3[0]], y:[y3[0]], z:[z3[0]], line:{width:4, color:'rgba(0,102,255,1.0)'} });
+    traces.push({ type:'scatter3d', mode:'markers', x:[x3[0]], y:[y3[0]], z:[z3[0]], marker:{size:3, color:'orange'} });
+    // optional markers
+    const addMarkers = (name,label,color)=>{
+      try{
+        const g = h5file.get(`${base}/obs/${name}`).value; const gx=[],gy=[],gz=[];
+        for(let t=0;t<T;t++){ gx.push(g[t*3+0]); gy.push(g[t*3+1]); gz.push(g[t*3+2]); }
+        if(fastModeCB.checked && gx.length>MAX_PLOT_POINTS){
+          const stride=Math.ceil(gx.length/MAX_PLOT_POINTS); const gx2=[],gy2=[],gz2=[];
+          for(let i=0;i<gx.length;i+=stride){ gx2.push(gx[i]); gy2.push(gy[i]); gz2.push(gz[i]); }
+          traces.push({ type:'scatter3d', mode:'markers', x:gx2, y:gy2, z:gz2, marker:{size:2, color}, name:label });
+        }else{
+          traces.push({ type:'scatter3d', mode:'markers', x:gx, y:gy, z:gz, marker:{size:2, color}, name:label });
+        }
+      }catch(_){}
+    };
+    if(document.querySelector('#advSignals input[data-id="goal"]')?.checked) addMarkers('other_goal_pos','goal','#6cf');
+    if(document.querySelector('#advSignals input[data-id="cube"]')?.checked) addMarkers('other_cube_pos','cube','#fc6');
+
     const xr = x3.length? [Math.min(...x3), Math.max(...x3)] : [0,1];
     const yr = y3.length? [Math.min(...y3), Math.max(...y3)] : [0,1];
     const zr = z3.length? [Math.min(...z3), Math.max(...z3)] : [0,1];
     const pad = (a,b)=> (b-a)*0.05 || 0.05;
     await Plotly.react(eefPlotEl, traces, {
-      ...common, margin:{l:0,r:0,t:26,b:0}, showlegend:false,
+      ...common, showlegend:false, margin:{l:0,r:0,t:26,b:0},
       scene:{
         xaxis:{ title:'X (m)', range:[xr[0]-pad(xr[0],xr[1]), xr[1]+pad(xr[0],xr[1])] },
         yaxis:{ title:'Y (m)', range:[yr[0]-pad(yr[0],yr[1]), yr[1]+pad(yr[0],yr[1])] },
@@ -731,29 +645,22 @@
     }, {displayModeBar:false, responsive:true});
 
     state._eefX = x; state._eefY = y; state._eefZ = z;
+    state.T = T;
+    slider.max = String(Math.max(0, T-1)); slider.value="0";
+    kpiFrames.textContent = String(T); kpiTMax.textContent = String(Math.max(0, T-1));
   }
 
-  // ---- Frame render
   async function renderFrame(t, force=false){
-    t = clamp(t, 0, Math.max(0, state.T - 1));
-    if(!force && t === state.t) return;
-    state.t = t;
-    slider.value = String(t); kpiT.textContent = String(t);
-
-    // Cameras: single-frame slice
+    t = clamp(t, 0, Math.max(0, state.T-1));
+    if(!force && t===state.t) return;
+    state.t = t; slider.value=String(t); kpiT.textContent=String(t);
     for(const name of state.selectedCams){
       const ds = state.camDS[name]; if(!ds) continue;
-      const W = state.W, H = state.H;
-      const flat = ds.slice([[t,t+1],[0,H],[0,W],[0,3]]);
-      const canvas = document.getElementById(`canvas_${name}`);
-      if(canvas) drawRGBToCanvas(canvas, flat, W, H);
+      const flat = ds.slice([[t,t+1],[0,state.H],[0,state.W],[0,3]]);
+      const canvas = document.getElementById(`canvas_${name}`); if(canvas) drawRGBToCanvas(canvas, flat, state.W, state.H);
     }
-
-    // cursor lines
     Plotly.relayout(gripperPlotEl, { shapes: verticalLine(t) });
     Plotly.relayout(manipPlotEl,   { shapes: verticalLine(t) });
-
-    // EEF played path + current point
     if(state._eefX.length){
       const px = state._eefX.slice(0,t+1), py = state._eefY.slice(0,t+1), pz = state._eefZ.slice(0,t+1);
       Plotly.restyle(eefPlotEl, { x:[px], y:[py], z:[pz] }, [1]);
@@ -761,47 +668,39 @@
     }
   }
 
-  // ---- Playback
+  /* ---------- playback ---------- */
   function updateTiming(){ playback.dt = Math.max(0.001, Number(dtInput.value) || 0.01); playback.speed = Number(speedSel.value) || 1.0; }
-  dtInput.addEventListener('change', ()=>{ updateTiming(); kpiTime.textContent = sec(state.T * playback.dt); });
+  dtInput.addEventListener('change', ()=>{ updateTiming(); kpiTime.textContent = sec((state.T||0)*playback.dt); });
   speedSel.addEventListener('change', ()=> updateTiming());
-
   function start(){
     if(playback.running || state.T===0) return;
-    updateTiming(); playback.running = true; playBtn.textContent = '⏸ Pause';
-    playback.last = performance.now(); playback.acc = 0;
+    updateTiming(); playback.running=true; playBtn.textContent='⏸ Pause';
+    playback.last=performance.now(); playback.acc=0;
     const period = ()=> 1000 * playback.dt / playback.speed;
     const tick = (now)=>{
       if(!playback.running) return;
-      const elapsed = now - playback.last; playback.last = now; playback.acc += elapsed;
+      const e = now - playback.last; playback.last=now; playback.acc += e;
       const per = period();
-      while(playback.acc >= per){ playback.acc -= per; const next = (state.t + 1) % Math.max(1, state.T); renderFrame(next); }
+      while(playback.acc >= per){ playback.acc -= per; renderFrame((state.t+1)%Math.max(1,state.T)); }
       playback.raf = requestAnimationFrame(tick);
     };
     playback.raf = requestAnimationFrame(tick);
   }
-  function stop(){
-    if(!playback.running) return;
-    playback.running = false; playBtn.textContent = '▶ Play';
-    if(playback.raf) cancelAnimationFrame(playback.raf); playback.raf = null;
-  }
-  playBtn.addEventListener('click', ()=> playback.running ? stop() : start());
+  function stop(){ if(!playback.running) return; playback.running=false; playBtn.textContent='▶ Play'; if(playback.raf) cancelAnimationFrame(playback.raf); playback.raf=null; }
+  playBtn.addEventListener('click', ()=> playback.running? stop() : start());
   slider.addEventListener('input', ()=> renderFrame(Number(slider.value), true));
-  window.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); playback.running ? stop() : start(); } if(e.code==='ArrowRight'){ stop(); renderFrame(state.t+1, true); } if(e.code==='ArrowLeft'){ stop(); renderFrame(state.t-1, true); } });
-
+  window.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); playback.running? stop(): start(); } if(e.code==='ArrowRight'){ stop(); renderFrame(state.t+1,true); } if(e.code==='ArrowLeft'){ stop(); renderFrame(state.t-1,true); } });
   window.addEventListener('resize', ()=>{ Plotly.Plots.resize(gripperPlotEl); Plotly.Plots.resize(manipPlotEl); Plotly.Plots.resize(eefPlotEl); });
 
-  // ---- Export helpers
+  /* ---------- overlay ---------- */
   function showOverlay(msg, p){ overlay.style.display='flex'; overlayMsg.textContent = msg; overlayBar.style.width = (p||0)+'%'; }
   function hideOverlay(){ overlay.style.display='none'; }
-  function getIncludedUINames(){ return uiNames.filter(n => include.has(n) && !removed.has(n)); }
+  const getIncludedUINames = ()=> uiNames.filter(n => include.has(n) && !removed.has(n));
 
-  // Pruned export (renumbered)
+  /* ---------- pruning (existing) ---------- */
   downloadPrunedBtn.addEventListener('click', async ()=>{
     if(!h5file) return;
-    const keepUI = getIncludedUINames();
-    if(keepUI.length===0){ alert('No demos selected (✓).'); return; }
-
+    const keepUI = getIncludedUINames(); if(keepUI.length===0){ alert('No demos selected (✓).'); return; }
     const renumber = renumberToggle.checked;
     const baseName = (sourceFilename || 'dataset.hdf5').split('/').pop();
     const outName = `pruned_${baseName}`;
@@ -810,154 +709,575 @@
     const out = new h5wasm.File(outName, 'w');
     const outData = out.create_group('data');
     const inData = h5file.get('data');
+    // env_args
+    try{ const ea = inData.attrs['env_args']?.value; if(ea!==undefined) outData.create_attribute('env_args', ea); }catch(_){}
+    let total=0;
 
-    // copy env_args if present
-    try{
-      const envArgs = inData.attrs['env_args']?.value;
-      if(envArgs !== undefined) outData.create_attribute('env_args', envArgs);
-    }catch(_){}
-
-    // recursive copy: copy srcPath into dstGroup (preserving structure)
-    async function copyTree(srcPath, dstGroup){
-      const obj = h5file.get(srcPath);
-      // datasets vs groups
-      if(obj.keys){
-        // group
-        const name = srcPath.split('/').pop();
-        const g = dstGroup.create_group(name);
-        // copy attrs
-        try{
-          const attrs = obj.attrs || {};
-          for(const k of Object.keys(attrs)){ g.create_attribute(k, attrs[k].value); }
-        }catch(_){}
-        for(const k of obj.keys()){
-          await copyTree(`${srcPath}/${k}`, g);
+    // copy children helper
+    async function copyChildren(srcGroupPath, dstGroup){
+      const gIn = h5file.get(srcGroupPath);
+      for(const k of gIn.keys()){
+        const obj = h5file.get(`${srcGroupPath}/${k}`);
+        if(obj.keys){
+          const ng = dstGroup.create_group(k);
+          try{ const attrs = obj.attrs||{}; for(const a of Object.keys(attrs)) ng.create_attribute(a, attrs[a].value); }catch(_){}
+          await copyChildren(`${srcGroupPath}/${k}`, ng);
+        }else{
+          const args = { name:k, data: obj.value, shape: obj.shape, dtype: obj.dtype, compression:'gzip', compression_opts:[4] };
+          dstGroup.create_dataset(args);
         }
-      } else {
-        // dataset (read once; write once)
-        const data = obj.value;
-        const name = srcPath.split('/').pop();
-        const args = { name, data, shape: obj.shape, dtype: obj.dtype };
-        try{
-          if((obj.filters||[]).some(f=>f.name==='deflate')){ args.compression='gzip'; args.compression_opts=[4]; }
-        }catch(_){}
-        dstGroup.create_dataset(args);
       }
-      await nextTick();
     }
 
-    // map UI → export name
-    const expNames = keepUI.map((_,i)=> `demo_${String(i).padStart(5,'0')}`);
-    // copy demos
-    let total = 0;
     for(let i=0;i<keepUI.length;i++){
-      const ui = keepUI[i];
-      const src = uiToSrc(ui);
-      const srcDemoPath = `data/${src}`;
-      const dstDemoName = renumber ? expNames[i] : src;  // renumber or keep original
-      overlayMsg.textContent = `Copying ${dstDemoName}…`; overlayBar.style.width = Math.round(100*(i/keepUI.length))+'%';
+      const ui = keepUI[i]; const src = uiToSrc(ui);
+      const dstName = renumber ? `demo_${String(i).padStart(5,'0')}` : src;
+      overlayMsg.textContent = `Copying ${dstName}…`; overlayBar.style.width = Math.round(100*i/keepUI.length)+'%';
 
-      // create container group with proper name
-      const g = outData.create_group(dstDemoName);
-      // copy demo attrs
-      try{
-        const gIn = h5file.get(srcDemoPath);
-        const attrs = gIn.attrs || {};
-        for(const k of Object.keys(attrs)){ g.create_attribute(k, attrs[k].value); }
-        total += (gIn.attrs['num_samples']?.value || 0);
-      }catch(_){}
-      // copy subtree
-      await copyTree(srcDemoPath, outData); // places /data/<src>/*
-      if(renumber && dstDemoName !== src){
-        // If renumbering, we just created /data/<src>/* above; move it under /data/<dstDemoName>
-        // Simpler: delete empty g and rename group by creating new and copying children again, but h5wasm lacks rename.
-        // Workaround: we already made 'g' with attrs; now move children from /data/<src> into g.
-        const tempGroup = outData.get(src);
-        for(const k of tempGroup.keys()){ await copyTree(`data/${src}/${k}`, g); }
-        // best-effort remove the temporary /data/<src> group by ignoring it in final file (cannot delete in h5wasm HL safely).
-      }
+      const gIn = h5file.get(`data/${src}`);
+      const gOut = outData.create_group(dstName);
+      try{ const attrs = gIn.attrs||{}; for(const a of Object.keys(attrs)) gOut.create_attribute(a, attrs[a].value); total += (gIn.attrs['num_samples']?.value || 0); }catch(_){}
+      await copyChildren(`data/${src}`, gOut);
       await nextTick();
     }
-
     outData.create_attribute('total', Number(total));
-    hideOverlay();
-    download(out);
-    out.close();
+    hideOverlay(); download(out); out.close();
   });
 
-  // Python script export (prune + renumber offline)
-  downloadScriptBtn.addEventListener('click', ()=>{
-    if(!h5file) return;
+  /* ---------- ROBOMIMIC EXPORT ---------- */
+  function normalizeActions(flat, N, A){
+    // flat length N*A (any dtype)
+    const f32 = new Float32Array(flat.length);
+    // compute per-dim max abs
+    const maxAbs = new Float32Array(A);
+    for(let i=0;i<N;i++){
+      for(let j=0;j<A;j++){
+        const v = Number(flat[i*A+j]);
+        const av = Math.abs(v);
+        if(av > maxAbs[j]) maxAbs[j] = av;
+      }
+    }
+    let fracIn = 0, count = N*A;
+    for(let i=0;i<N;i++) for(let j=0;j<A;j++){ const v = Number(flat[i*A+j]); if(v>=-1.2 && v<=1.2) fracIn++; }
+    const already = (fracIn / count) > 0.98;
+    for(let i=0;i<N;i++){
+      for(let j=0;j<A;j++){
+        let v = Number(flat[i*A+j]);
+        if(!already){
+          const s = maxAbs[j] || 1e-6;
+          v = v / s;
+        }
+        if(v < -1) v = -1; else if(v > 1) v = 1;
+        f32[i*A+j] = v;
+      }
+    }
+    return f32;
+  }
+
+  function fixLen(flat, shape, N){
+    // shape: [T, ...]; flat: TypedArray length T*stride
+    const T = shape[0];
+    const stride = shape.slice(1).reduce((a,b)=>a*b, 1) || 1;
+    if(T === N) return { data: flat, shape };
+    const out = new (flat.constructor)(N * stride);
+    const m = Math.min(T, N);
+    out.set(flat.subarray(0, m*stride), 0);
+    if(m>0){
+      const last = flat.subarray((m-1)*stride, m*stride);
+      for(let i=m;i<N;i++) out.set(last, i*stride);
+    }
+    return { data: out, shape: [N, ...shape.slice(1)] };
+  }
+
+  function shiftNext(flat, shape){
+    const N = shape[0];
+    const stride = shape.slice(1).reduce((a,b)=>a*b,1) || 1;
+    const out = new (flat.constructor)(flat.length);
+    if(N===0) return { data: out, shape:[0, ...shape.slice(1)] };
+    for(let i=0;i<N-1;i++){
+      const src = flat.subarray((i+1)*stride, (i+2)*stride);
+      out.set(src, i*stride);
+    }
+    // last = last
+    const last = flat.subarray((N-1)*stride, N*stride);
+    out.set(last, (N-1)*stride);
+    return { data: out, shape:[N, ...shape.slice(1)] };
+  }
+
+  function canonicalKey(parts){
+    // drop leading 'state'
+    const arr = parts.filter(Boolean);
+    if(arr[0]==='state') arr.shift();
+    let key = arr.join('_');
+    if(key.startsWith('manip_')) key = 'manipulator_' + key.slice('manip_'.length);
+    return key;
+  }
+
+  function isNumericDtype(dt){
+    const s = String(dt||'').toLowerCase();
+    return s.includes('int') || s.includes('float') || s.includes('uint') || s.includes('f') || s.includes('i');
+  }
+
+  function resampleFramesNearest(flat, shape, N){
+    // shape [K, H, W, C], uint8
+    const K = shape[0], H=shape[1], W=shape[2], C=shape[3];
+    if(K===N) return { data: flat, shape };
+    if(K===0) return { data: new Uint8Array(N*H*W*C), shape:[N,H,W,C] };
+    const frame = H*W*C;
+    // precompute nearest idx
+    const xi = new Float64Array(N);
+    for(let i=0;i<N;i++) xi[i] = i/(N-1); // [0,1]
+    const idx = new Int32Array(N);
+    for(let i=0;i<N;i++) idx[i] = Math.min(K-1, Math.max(0, Math.round(xi[i]*(K-1))));
+    const out = new Uint8Array(N*frame);
+    for(let i=0;i<N;i++){
+      const srcStart = idx[i]*frame, dstStart = i*frame;
+      out.set(flat.subarray(srcStart, srcStart+frame), dstStart);
+    }
+    return { data: out, shape:[N,H,W,C] };
+  }
+
+  async function exportRobomimic(){
     const keepUI = getIncludedUINames();
     if(keepUI.length===0){ alert('No demos selected (✓).'); return; }
     const renumber = renumberToggle.checked;
-    const keepSrc = keepUI.map(ui=> uiToSrc(ui));
+    const baseName = (sourceFilename || 'dataset.hdf5').split('/').pop().replace(/\.hdf5?$/i,'');
+    const outName = `${baseName}_robomimic.hdf5`;
+    showOverlay('Converting to robomimic…', 0);
 
+    const out = new h5wasm.File(outName, 'w');
+    const oData = out.create_group('data'); let total=0;
+
+    // env_args: prefer existing /data attr; else build minimal
+    function setEnvArgs(){
+      try{
+        const inData = h5file.get('data');
+        const ea = inData.attrs['env_args']?.value;
+        if(ea!==undefined){ oData.create_attribute('env_args', ea); return; }
+      }catch(_){}
+      // fallback: unknown
+      const fallback = JSON.stringify({ env_name:'unknown', type:'dexsuite', env_kwargs:{} });
+      oData.create_attribute('env_args', fallback);
+    }
+    setEnvArgs();
+
+    for(let i=0;i<keepUI.length;i++){
+      const ui = keepUI[i]; const src = uiToSrc(ui);
+      const dstName = renumber ? `demo_${String(i).padStart(5,'0')}` : src;
+      overlayMsg.textContent = `Converting ${dstName}…`; overlayBar.style.width = Math.round(100*i/keepUI.length)+'%';
+
+      const gPath = `data/${src}`;
+      const g = h5file.get(gPath);
+
+      // N, A from actions
+      const act = h5file.get(`${gPath}/actions`);
+      const N = act.shape[0], A = act.shape.length>1 ? act.shape[1] : 0;
+      const actions = normalizeActions(act.value, N, A);
+
+      // rewards, dones
+      let rewards, dones;
+      try{
+        const rw = h5file.get(`${gPath}/rewards`);
+        const fixed = fixLen(rw.value, rw.shape, N);
+        rewards = new Float32Array(fixed.data.length);
+        for(let k=0;k<fixed.data.length;k++) rewards[k] = Number(fixed.data[k]);
+      }catch(_){
+        rewards = new Float32Array(N); // zeros
+      }
+      try{
+        const dn = h5file.get(`${gPath}/dones`);
+        const fixed = fixLen(dn.value, dn.shape, N);
+        dones = new Uint8Array(fixed.data.length);
+        for(let k=0;k<fixed.data.length;k++) dones[k] = Number(fixed.data[k]) ? 1 : 0;
+      }catch(_){
+        dones = new Uint8Array(N); if(N>0) dones[N-1]=1;
+      }
+      if(N>0) dones[N-1] = 1; // episode must terminate
+
+      // Output group
+      const og = oData.create_group(dstName);
+      og.create_attribute('num_samples', N);
+      try{
+        const s = h5file.get(`${gPath}/success`); // optional: 0/1 across time
+        const last = Array.isArray(s.shape) && s.shape[0]>0 ? Number(s.value[(s.shape[0]-1)*(s.shape.length>1?s.shape[1]:1)]) : 0;
+        og.create_attribute('success', last>0 ? 1:0);
+      }catch(_){}
+
+      // datasets (gzip level ~4)
+      og.create_dataset({ name:'actions', data: actions, shape:[N,A], dtype:'float32', compression:'gzip', compression_opts:[4] });
+      og.create_dataset({ name:'rewards', data: rewards, shape:[N], dtype:'float32', compression:'gzip', compression_opts:[4] });
+      og.create_dataset({ name:'dones',   data: dones,   shape:[N], dtype:'uint8',   compression:'gzip', compression_opts:[4] });
+      og.create_dataset({ name:'states',  data: new Float32Array(0), shape:[N,0], dtype:'float32' });
+
+      // OBS fast path: if obs exists → copy obs & next_obs
+      let copiedFast = false;
+      try{
+        const obsG = h5file.get(`${gPath}/obs`);
+        const keys = obsG.keys();
+        const ogObs = og.create_group('obs');
+        const ogNxt = og.create_group('next_obs');
+        for(const k of keys){
+          const ds = h5file.get(`${gPath}/obs/${k}`);
+          const args = { name:k, data: ds.value, shape: ds.shape, dtype: ds.dtype, compression:'gzip', compression_opts:[4] };
+          ogObs.create_dataset(args);
+          // next_obs: use existing if available
+          try{
+            const nds = h5file.get(`${gPath}/next_obs/${k}`);
+            const nArgs = { name:k, data: nds.value, shape: nds.shape, dtype: nds.dtype, compression:'gzip', compression_opts:[4] };
+            ogNxt.create_dataset(nArgs);
+          }catch(_){
+            const shifted = shiftNext(ds.value, ds.shape);
+            ogNxt.create_dataset({ name:k, data: shifted.data, shape: shifted.shape, dtype: ds.dtype, compression:'gzip', compression_opts:[4] });
+          }
+        }
+        copiedFast = true;
+      }catch(_){}
+
+      if(!copiedFast){
+        // Build obs from /state + /cameras
+        const ogObs = og.create_group('obs');
+        const ogNxt = og.create_group('next_obs');
+
+        // flatten /state
+        try{
+          const st = h5file.get(`${gPath}/state`);
+          async function walk(pathParts, node){
+            for(const name of node.keys()){
+              const obj = h5file.get(`${pathParts.join('/')}/${name}`);
+              if(obj.keys){
+                await walk([...pathParts, name], obj);
+              }else{
+                // numeric only
+                if(!isNumericDtype(obj.dtype)) continue;
+                const fixed = fixLen(obj.value, obj.shape, N);
+                const key = canonicalKey([...pathParts.slice(pathParts.indexOf('state')), name]);
+                const dtype = String(obj.dtype).toLowerCase().includes('uint8') ? 'uint8' : 'float32';
+                const data = (dtype==='uint8') ? new Uint8Array(fixed.data) : new Float32Array(fixed.data.length).map((_,i)=> Number(fixed.data[i]));
+                ogObs.create_dataset({ name:key, data: dtype==='uint8'? new Uint8Array(fixed.data) : new Float32Array(fixed.data), shape: fixed.shape, dtype, compression:'gzip', compression_opts:[4] });
+                const nxt = shiftNext(fixed.data, fixed.shape);
+                ogNxt.create_dataset({ name:key, data: nxt.data, shape: nxt.shape, dtype, compression:'gzip', compression_opts:[4] });
+                await nextTick();
+              }
+            }
+          }
+          await walk([`data`, src, `state`], h5file.get(`${gPath}/state`));
+        }catch(_){ /* no /state */ }
+
+        // cameras → *_image
+        try{
+          const cams = h5file.get(`${gPath}/cameras`).keys();
+          for(const cam of cams){
+            const ds = h5file.get(`${gPath}/cameras/${cam}`);
+            const rs = resampleFramesNearest(ds.value, ds.shape, N); // uint8
+            ogObs.create_dataset({ name:`${cam}_image`, data: rs.data, shape: rs.shape, dtype:'uint8', compression:'gzip', compression_opts:[4] });
+            const nxt = shiftNext(rs.data, rs.shape);
+            ogNxt.create_dataset({ name:`${cam}_image`, data: nxt.data, shape: nxt.shape, dtype:'uint8', compression:'gzip', compression_opts:[4] });
+            await nextTick();
+          }
+        }catch(_){ /* no cameras */ }
+      }
+
+      total += N;
+      await nextTick();
+    }
+
+    oData.create_attribute('total', Number(total));
+    hideOverlay(); download(out); out.close();
+  }
+
+  downloadRoboBtn.addEventListener('click', exportRobomimic);
+
+  /* ---------- Python script downloads ---------- */
+  downloadScriptBtn.addEventListener('click', ()=>{
+    const keepUI = getIncludedUINames().map(ui => uiToSrc(ui));
+    const renumber = renumberToggle.checked;
     const py = `#!/usr/bin/env python3
-import argparse, h5py, numpy as np, sys
+import argparse, h5py, numpy as np
 
 def copy_attrs(src, dst):
     for k,v in src.attrs.items():
         try: dst.attrs[k] = v
-        except: pass
+        except Exception: pass
 
-def copy_tree(infile, outfile, src_path, dst_group):
-    obj = infile[src_path]
-    if isinstance(obj, h5py.Group):
-        name = src_path.split('/')[-1]
-        g = dst_group.create_group(name)
-        copy_attrs(obj, g)
-        for k in obj.keys():
-            copy_tree(infile, outfile, src_path + '/' + k, g)
-    else:
-        # dataset
-        name = src_path.split('/')[-1]
-        d = dst_group.create_dataset(name, data=obj[...], compression='gzip', compression_opts=4)
-        copy_attrs(obj, d)
+def copy_group(fin, fout, src_path, dst_group):
+    g = fin[src_path]
+    copy_attrs(g, dst_group)
+    for k in g.keys():
+        p = src_path + '/' + k
+        if isinstance(fin[p], h5py.Group):
+            ng = dst_group.create_group(k); copy_group(fin, fout, p, ng)
+        else:
+            d = fin[p]; dst_group.create_dataset(k, data=d[...], compression='gzip', compression_opts=4); copy_attrs(d, dst_group[k])
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--input', required=True)
     ap.add_argument('--output', required=True)
-    ap.add_argument('--no-renumber', action='store_true', help='keep original demo names')
+    ap.add_argument('--no-renumber', action='store_true')
     args = ap.parse_args()
 
-    keep_src = ${JSON.stringify(keepSrc, null, 2)}
+    keep_src = ${JSON.stringify(keepUI, null, 2)}
     do_renum = ${renumber ? 'True' : 'False'} and (not args.no_renumber)
 
     with h5py.File(args.input, 'r') as fin, h5py.File(args.output, 'w') as fout:
-        data_in  = fin['data']
-        data_out = fout.create_group('data')
-
-        # env_args
-        if 'env_args' in data_in.attrs:
-            data_out.attrs['env_args'] = data_in.attrs['env_args']
-
+        di = fin['data']; do = fout.create_group('data')
+        copy_attrs(di, do)
         total = 0
         for i, src in enumerate(keep_src):
             out_name = src if not do_renum else f'demo_{i:05d}'
-            # create group and copy attrs
-            g_in  = data_in[src]
-            g_out = data_out.create_group(out_name)
-            copy_attrs(g_in, g_out)
-            total += int(g_in.attrs.get('num_samples', 0))
-            # copy children
-            for k in g_in.keys():
-                copy_tree(fin, fout, f'data/{src}/{k}', g_out)
-
-        data_out.attrs['total'] = total
+            gi = di[src]; go = do.create_group(out_name)
+            copy_group(fin, fout, f'data/{src}', go)
+            total += int(gi.attrs.get('num_samples', 0))
+        do.attrs['total'] = int(total)
 
 if __name__ == '__main__':
     main()
 `;
     const blob = new Blob([py], {type:'text/x-python'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'prune_renumber.py';
-    document.body.appendChild(a); a.click(); a.remove();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='prune_renumber.py'; a.click();
   });
 
-  // Initialize defaults
+  // Robomimic script (next section) injected below:
+  downloadRoboScriptBtn.addEventListener('click', ()=>{
+    const py = `#!/usr/bin/env python3
+# convert_robomimic_dataset.py  — Dexsuite teleop HDF5 -> robomimic HDF5
+from __future__ import annotations
+import argparse, json, os, sys, glob, re
+from typing import Dict, Any, List, Tuple, Iterable
+import h5py, numpy as np
+
+def _as_json_attr(d: Dict[str, Any]) -> str:
+    return json.dumps(d, separators=(",", ":"), ensure_ascii=False)
+
+def _read_meta_attrs(f: h5py.File) -> Dict[str, Any]:
+    meta = {}
+    for k, v in f.attrs.items():
+        try:
+            if isinstance(v, (bytes,)):
+                v = v.decode("utf-8", errors="ignore")
+            if isinstance(v, str):
+                try: meta[k] = json.loads(v)
+                except Exception: meta[k] = v
+            else:
+                meta[k] = v
+        except Exception:
+            meta[k] = v
+    return meta
+
+def _shift_next(arr: np.ndarray) -> np.ndarray:
+    if arr.ndim == 0 or arr.shape[0] == 0: return arr
+    nxt = np.empty_like(arr); nxt[:-1] = arr[1:]; nxt[-1] = arr[-1]; return nxt
+
+def _fix_len(arr: np.ndarray, N: int) -> np.ndarray:
+    arr = np.asarray(arr); T = arr.shape[0] if arr.ndim>=1 else 1
+    if T == N: return arr
+    if arr.ndim == 0: out = np.zeros((N,), dtype=arr.dtype); out[:] = arr; return out
+    out = np.empty((N,) + arr.shape[1:], dtype=arr.dtype)
+    if T == 0: out[:] = 0; return out
+    m = min(N, T); out[:m] = arr[:m]; out[m:] = arr[m-1:m]; return out
+
+def _resample_frames_to_steps(frames: np.ndarray, n_steps: int) -> np.ndarray:
+    frames = np.asarray(frames)  # (K,H,W,C)
+    K = frames.shape[0]
+    if K == 0: return np.zeros((n_steps,) + frames.shape[1:], dtype=frames.dtype)
+    if K == n_steps: return frames
+    xs = np.linspace(0.0, 1.0, num=K); xi = np.linspace(0.0, 1.0, num=n_steps)
+    idx = np.clip(np.searchsorted(xs, xi, side="left"), 0, K-1)
+    return frames[idx]
+
+def _normalize_actions(a: np.ndarray) -> np.ndarray:
+    a = np.asarray(a)
+    if a.size == 0: return a.astype(np.float32)
+    frac_in = float(np.mean((a >= -1.2) & (a <= 1.2)))
+    if frac_in > 0.98: return np.clip(a, -1.0, 1.0).astype(np.float32, copy=False)
+    scale = np.maximum(np.max(np.abs(a), axis=0), 1e-6)
+    a_n = a / scale
+    return np.clip(a_n, -1.0, 1.0).astype(np.float32, copy=False)
+
+def _is_numeric(dset: h5py.Dataset) -> bool:
+    return np.issubdtype(dset.dtype, np.number)
+
+_TSTEP_RE = re.compile(r"^t\\d{6}$")
+
+def _canonical_key(parts: Iterable[str]) -> str:
+    parts = [p for p in parts if p]
+    if parts and parts[0] == "state": parts = list(parts[1:])
+    key = "_".join(parts)
+    if key.startswith("manip_"): key = "manipulator_" + key[len("manip_"):]
+    return key
+
+def _flatten_state_group(st_g: h5py.Group, N: int) -> Dict[str, np.ndarray]:
+    out: Dict[str, np.ndarray] = {}
+    def _max_shape(shapes: List[Tuple[int,...]]) -> Tuple[int,...]:
+        if not shapes: return ()
+        nd = max(len(s) for s in shapes)
+        out_shape = []
+        for i in range(nd):
+            out_shape.append(max((s[i] if i<len(s) else 1) for s in shapes))
+        return tuple(out_shape)
+    def _pad_to_shape(x: np.ndarray, target: Tuple[int,...]) -> np.ndarray:
+        x = np.asarray(x)
+        if x.ndim < len(target):
+            x = x.reshape(x.shape + (1,) * (len(target) - x.ndim))
+        slices = tuple(slice(0, min(x.shape[i], target[i])) for i in range(len(target)))
+        y = np.zeros(target, dtype=x.dtype); y[slices] = x[slices]; return y
+    def _is_t_group(g: h5py.Group) -> bool:
+        if not isinstance(g, h5py.Group) or len(g) == 0: return False
+        names = list(g.keys()); return all(_TSTEP_RE.match(n) for n in names)
+    def walk(g: h5py.Group, path: List[str]):
+        for name, obj in g.items():
+            cur = path + [name]
+            if isinstance(obj, h5py.Dataset):
+                if not _is_numeric(obj): continue
+                arr = np.asarray(obj); arr = _fix_len(arr, N) if arr.ndim>=1 else _fix_len(arr.reshape(1), N)
+                if arr.dtype != np.uint8: arr = arr.astype(np.float32, copy=False)
+                out[_canonical_key(cur)] = arr
+            elif isinstance(obj, h5py.Group):
+                if _is_t_group(obj):
+                    names = sorted(obj.keys())
+                    elems, shapes = [], []
+                    for tn in names:
+                        ds = obj[tn]
+                        if isinstance(ds, h5py.Dataset) and _is_numeric(ds):
+                            a = np.asarray(ds); elems.append(a); shapes.append(a.shape)
+                        else:
+                            elems.append(None)
+                    all_u8 = all((e is not None and e.dtype==np.uint8) for e in elems if e is not None)
+                    dtype = np.uint8 if (elems and all_u8) else np.float32
+                    target = _max_shape(shapes); K = len(elems)
+                    if target == ():
+                        seq = np.zeros((K,), dtype=dtype)
+                        for i,e in enumerate(elems):
+                            if e is None: continue
+                            ee = e.astype(dtype, copy=False) if e.dtype!=dtype else e
+                            seq[i] = ee
+                    else:
+                        seq = np.zeros((K,) + target, dtype=dtype)
+                        for i,e in enumerate(elems):
+                            if e is None: continue
+                            ee = e.astype(dtype, copy=False) if e.dtype!=dtype else e
+                            seq[i] = _pad_to_shape(ee, target)
+                    seq = _fix_len(seq, N)
+                    out[_canonical_key(cur)] = seq if dtype==np.uint8 else seq.astype(np.float32, copy=False)
+                else:
+                    walk(obj, cur)
+    walk(st_g, ["state"]); return out
+
+def convert_inputs(in_files: List[str], out_path: str, include_images: bool) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
+    metas: List[Dict[str, Any]] = []
+    with h5py.File(out_path, "w") as dst:
+        data_g = dst.create_group("data")
+        next_idx = 0
+        for in_path in in_files:
+            with h5py.File(in_path, "r") as src:
+                metas.append(_read_meta_attrs(src))
+                src_data = src.get("data", None)
+                if src_data is None:
+                    print(f"[skip] {in_path} has no /data"); continue
+                # numeric sort
+                demo_names = sorted([k for k in src_data.keys() if k.startswith("demo_")],
+                                    key=lambda s: int(re.sub(r'\\D', '', s) or '0'))
+                for dn in demo_names:
+                    g = src_data[dn]
+                    if "actions" not in g:
+                        print(f"[warn] {in_path}:{dn} has no actions; skipping"); continue
+                    acts = _normalize_actions(np.asarray(g["actions"], dtype=np.float32))
+                    N = int(acts.shape[0]); A = acts.shape[1] if acts.ndim==2 else 0
+
+                    rews = np.asarray(g.get("rewards", np.zeros((N,), np.float32)), dtype=np.float32).reshape(-1)
+                    if rews.shape[0] != N: rews = _fix_len(rews, N)
+
+                    dns  = np.asarray(g.get("dones", np.zeros((N,), np.uint8)), dtype=np.uint8).reshape(-1)
+                    if dns.shape[0] != N: dns = _fix_len(dns, N).astype(np.uint8)
+                    if N>0: dns[-1] = 1
+
+                    obs_dict: Dict[str, np.ndarray] = {}
+                    st = g.get("state", None)
+                    if st is not None and isinstance(st, h5py.Group):
+                        obs_dict.update(_flatten_state_group(st, N))
+                    else:
+                        st = g.get("state", None)
+                        if st is not None:
+                            for key, dset in st.items():
+                                if not isinstance(dset, h5py.Dataset) or (not _is_numeric(dset)): continue
+                                arr = _fix_len(np.asarray(dset), N)
+                                if arr.dtype != np.uint8: arr = arr.astype(np.float32, copy=False)
+                                out_key = key
+                                if out_key.startswith("manip_"): out_key = "manipulator_" + out_key[len("manip_"):]
+                                obs_dict[out_key] = arr
+
+                    if include_images and "cameras" in g:
+                        for cam_name, dset in g["cameras"].items():
+                            try:
+                                frames = _resample_frames_to_steps(np.asarray(dset), N)
+                                obs_dict[f"{cam_name}_image"] = frames.astype(np.uint8, copy=False)
+                            except Exception as e:
+                                print(f"[warn] {in_path}:{dn} camera {cam_name}: {e} — skipping")
+
+                    out_name = f"demo_{next_idx:05d}"; next_idx += 1
+                    og = data_g.create_group(out_name)
+                    og.attrs["num_samples"] = int(N)
+                    if "success" in g:
+                        try: og.attrs["success"] = int(np.asarray(g["success"])[-1] > 0)
+                        except Exception: pass
+
+                    og.create_dataset("actions", data=acts, dtype=np.float32, compression="gzip", compression_opts=4)
+                    og.create_dataset("rewards", data=rews, dtype=np.float32, compression="gzip", compression_opts=4)
+                    og.create_dataset("dones",   data=dns,  dtype=np.uint8,  compression="gzip", compression_opts=4)
+                    og.create_dataset("states",  data=np.zeros((N,0), np.float32))
+
+                    obs_g = og.create_group("obs"); nxt_g = og.create_group("next_obs")
+                    for key, arr in obs_dict.items():
+                        ds_dtype = np.uint8 if arr.dtype==np.uint8 else np.float32
+                        arr = arr.astype(ds_dtype, copy=False)
+                        obs_g.create_dataset(key, data=arr, dtype=ds_dtype, compression="gzip", compression_opts=4)
+                        nxt_g.create_dataset(key, data=_shift_next(arr), dtype=ds_dtype, compression="gzip", compression_opts=4)
+
+        total = sum(int(data_g[k].attrs.get("num_samples", 0)) for k in data_g.keys() if k.startswith("demo_"))
+        data_g.attrs["total"] = int(total)
+
+        # env_args: prefer existing /data.attrs.env_args from first input
+        env_args = None
+        with h5py.File(in_files[0], "r") as first:
+            if "data" in first and "env_args" in first["data"].attrs:
+                env_args = first["data"].attrs["env_args"]
+        if env_args is None:
+            env_name = None; env_kwargs={}
+            for m in metas:
+                if not m: continue
+                env_name = env_name or str(m.get("task", "unknown"))
+                for kk in ("manipulator","gripper","arm_control","gripper_control","sim_dt"):
+                    if kk in m and m[kk] is not None: env_kwargs[kk] = m[kk]
+                break
+            if env_name is None: env_name = "unknown"
+            env_args = _as_json_attr({ "env_name": env_name, "type":"dexsuite", "env_kwargs": env_kwargs })
+        data_g.attrs["env_args"] = env_args
+
+        print(f"[done] wrote {out_path}")
+        print(f"       total demos: {sum(1 for k in data_g.keys() if k.startswith('demo_'))}")
+        print(f"       total steps: {total}")
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--in", dest="in_globs", nargs="+", required=True, help="Input Dexsuite teleop HDF5 files or globs.")
+    ap.add_argument("--out", dest="out_path", required=True, help="Output robomimic HDF5 path.")
+    ap.add_argument("--include_images", action="store_true", help="Copy camera frames as *_image (resampled to step count).")
+    args = ap.parse_args()
+    in_files: List[str] = []
+    for gpat in args.in_globs: in_files.extend(glob.glob(gpat))
+    in_files = sorted(list(dict.fromkeys(in_files)))
+    if not in_files: print("No input files matched."); sys.exit(2)
+    convert_inputs(in_files, args.out_path, args.include_images)
+
+if __name__ == "__main__":
+    main()
+`;
+    const blob = new Blob([py], {type:'text/x-python'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='convert_robomimic_dataset.py'; a.click();
+  });
+
+  /* ---------- boot ---------- */
   setTheme('dark');
 </script>
 </body>
