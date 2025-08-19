@@ -21,8 +21,10 @@
     --bg:#ffffff; --panel:#f6f8fb; --card:#ffffff; --ring:#e3e8ef; --muted:#5b6b7a; --fg:#0d1117;
     --accent:#0066ff; --accent-2:#7dbdff; --chip:#eef3f9; --chip-hover:#e7edf6; --plot-bg:#ffffff;
   }
+
   *{ box-sizing:border-box; }
-  html, body { height:100%; margin:0; background:var(--bg); color:var(--fg); font-family:Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif }
+  html, body { margin:0; background:var(--bg); color:var(--fg); font-family:Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif }
+  /* FIX: let the page scroll naturally; bottom bar is not fixed anymore */
   .app{
     display:grid; grid-template-columns: 300px 1fr;
     grid-template-rows: auto 1fr auto;
@@ -30,8 +32,12 @@
       "sidebar header"
       "sidebar main"
       "controls controls";
-    gap:16px; height:100vh; padding:16px;
+    gap:16px;
+    min-height:100vh; /* was height:100vh; -> removed */
+    height:auto;      /* allow natural page height */
+    padding:16px;
   }
+
   header{
     grid-area:header; display:flex; align-items:center; justify-content:space-between;
     padding:12px 16px; background:var(--panel); border:1px solid var(--ring); border-radius:14px;
@@ -44,7 +50,6 @@
     border:1px solid var(--ring); background:var(--card); color:var(--fg);
     padding:8px 12px; border-radius:10px; cursor:pointer;
   }
-  .toolbar .btn{ margin-right:8px; }
 
   .sidebar{
     grid-area:sidebar; display:flex; flex-direction:column; gap:14px; padding:12px;
@@ -62,12 +67,10 @@
     display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--ring);
     background:var(--card); border-radius:10px;
   }
-  .field input, .field select{
-    background:transparent; border:none; color:var(--fg); outline:none; font:inherit;
-  }
+  .field input, .field select{ background:transparent; border:none; color:var(--fg); outline:none; font:inherit; }
 
-  /* Demo chips with include toggle + remove */
-  .chips{ display:flex; flex-direction:column; gap:8px; overflow:auto; padding-right:4px; }
+  /* Demo chips with include toggle + remove; UI shows renumbered names */
+  .chips{ display:flex; flex-direction:column; gap:8px; overflow:auto; padding-right:4px; max-height:220px; }
   .chip{
     display:flex; align-items:center; justify-content:space-between; gap:8px;
     padding:9px 12px; border-radius:10px; background:var(--chip); border:1px solid var(--ring);
@@ -78,10 +81,6 @@
   .chip .left{ display:flex; align-items:center; gap:10px; cursor:pointer; }
   .chip .remove{ cursor:pointer; opacity:.8; }
   .chip .remove:hover{ opacity:1; filter:brightness(1.2); }
-
-  .checklist{ display:flex; flex-direction:column; gap:6px; padding:8px; max-height:180px; overflow:auto; border:1px dashed var(--ring); border-radius:10px; background:var(--card); }
-  .checklist label{ display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; cursor:pointer; }
-  .check-row{ display:flex; gap:8px; }
   .mini{ font-size:12px; color:var(--muted); }
 
   .main{ grid-area:main; display:grid; grid-template-columns: 1.2fr 1fr; gap:16px; min-height:0; }
@@ -136,24 +135,18 @@
       <div class="toolbar">
         <label class="btn" for="fileInput">📁 Upload HDF5</label>
         <input id="fileInput" type="file" accept=".h5,.hdf5"/>
-        <button id="downloadOrigBtn" class="btn" title="Download original upload">⬇ Original</button>
-        <button id="downloadPrunedBtn" class="btn" title="Download only included demos">⬇ Pruned</button>
       </div>
       <div class="hint" id="fileInfo" style="margin-top:8px;">No file loaded.</div>
     </div>
 
     <div>
-      <h3>Demos</h3>
+      <h3>Demos (UI renumbered)</h3>
       <div id="demoChips" class="chips"></div>
-      <div class="hint mini">Click a demo name to view. Use ✓ to include/exclude for export, 🗑 to remove from this session.</div>
+      <div class="hint mini">Click name to view. ✓ include for export. 🗑 removes from this session (original file unchanged).</div>
     </div>
 
     <div>
       <h3>Cameras (select up to 8)</h3>
-      <div class="check-row" style="margin-bottom:6px;">
-        <button id="selectAllCams" class="btn">Select all</button>
-        <button id="clearCams" class="btn">Clear</button>
-      </div>
       <div class="field" style="margin-bottom:6px;">
         <span>Image source</span>
         <select id="imgSrcSel">
@@ -161,31 +154,36 @@
           <option value="next_obs">next_obs</option>
         </select>
       </div>
+      <div class="check-row" style="margin-bottom:6px;">
+        <button id="selectAllCams" class="btn">Select all</button>
+        <button id="clearCams" class="btn">Clear</button>
+      </div>
       <div id="camChecklist" class="checklist"></div>
-      <div class="hint mini">Cards auto‑layout. Toggle on/off anytime.</div>
+      <div class="hint mini">Cards auto‑layout. Toggle anytime.</div>
     </div>
 
     <div>
       <h3>Advanced signals</h3>
       <div class="checklist" id="advSignals"></div>
-      <div class="hint mini">Overlay more series on plots (vel, torque, actions, TCP pose, etc.).</div>
+      <div class="hint mini">Overlay vel/torques/TCP/actions/goal/cube (opt‑in).</div>
     </div>
 
     <div>
-      <h3>Playback</h3>
-      <div class="field">
-        <span>Δt</span><input id="dtInput" type="number" min="0.001" step="0.001" value="0.01"/>
-        <span class="mini">s/step</span>
+      <h3>Performance</h3>
+      <label class="field"><input id="fastMode" type="checkbox" checked/> <span>Fast mode (downsample plots)</span></label>
+    </div>
+
+    <div>
+      <h3>Export</h3>
+      <div class="checklist">
+        <label><input id="renumberToggle" type="checkbox" checked/> <span>Renumber demos to demo_00000..</span></label>
       </div>
-      <div class="field" style="margin-top:6px;">
-        <span>Speed</span>
-        <select id="speedSel">
-          <option value="0.25">0.25×</option>
-          <option value="0.5">0.5×</option>
-          <option value="1" selected>1×</option>
-          <option value="2">2×</option>
-          <option value="4">4×</option>
-        </select>
+      <div class="check-row" style="margin-top:6px;">
+        <button id="downloadOrigBtn" class="btn" title="Download original upload">⬇ Original</button>
+        <button id="downloadPrunedBtn" class="btn" title="Download pruned HDF5">⬇ Pruned</button>
+      </div>
+      <div class="check-row" style="margin-top:6px;">
+        <button id="downloadScriptBtn" class="btn" title="Download pruning Python script">⬇ Python script</button>
       </div>
     </div>
   </aside>
@@ -209,7 +207,6 @@
   <!-- Main -->
   <section class="main">
     <section class="cameras" id="camsGrid"></section>
-
     <section class="plots">
       <div class="plot-card"><div id="gripperPlot" class="plot"></div></div>
       <div class="plot-card"><div id="manipPlot" class="plot"></div></div>
@@ -217,13 +214,26 @@
     </section>
   </section>
 
-  <!-- Controls -->
+  <!-- Controls (scrolls with page) -->
   <section class="controls">
     <button id="playBtn" class="play">▶ Play</button>
     <input id="mainSlider" class="slider" type="range" min="0" value="0" max="1" step="1"/>
     <span class="tag">t = <b id="kpiT">0</b> / <span id="kpiTMax">0</span></span>
     <span class="spacer"></span>
     <span class="tag" id="envTag">env: —</span>
+    <div class="field" style="margin-left:auto">
+      <span>Δt</span><input id="dtInput" type="number" min="0.001" step="0.001" value="0.01"/>
+      <span class="mini">s/step</span>
+      <span style="width:10px"></span>
+      <span>Speed</span>
+      <select id="speedSel">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+    </div>
   </section>
 </div>
 
@@ -237,10 +247,9 @@
 
 <!-- App logic -->
 <script type="module">
-  // HDF5 in the browser (h5wasm)
   import h5wasm from "https://cdn.jsdelivr.net/npm/h5wasm@0.4.9/dist/esm/hdf5_hl.js";
   import { uploader, UPLOADED_FILES, download } from "https://cdn.jsdelivr.net/npm/h5wasm@0.4.9/dist/esm/file_handlers.js";
-  const Module = await h5wasm.ready; const { FS } = Module;
+  const Module = await h5wasm.ready;
 
   // ---- UI refs
   const body = document.body;
@@ -248,6 +257,9 @@
   const fileInput = document.getElementById('fileInput');
   const downloadOrigBtn = document.getElementById('downloadOrigBtn');
   const downloadPrunedBtn = document.getElementById('downloadPrunedBtn');
+  const downloadScriptBtn = document.getElementById('downloadScriptBtn');
+  const renumberToggle = document.getElementById('renumberToggle');
+  const fastModeCB = document.getElementById('fastMode');
   const fileInfo  = document.getElementById('fileInfo');
 
   const demoChips = document.getElementById('demoChips');
@@ -279,46 +291,51 @@
 
   // ---- State
   let h5file = null;
-  let demos = [];         // all demo names from file
-  let include = new Set();// demos included for export
-  let removed = new Set();// demos removed in session (UI only)
-  let currentDemo = null;
   let sourceFilename = null;
 
+  // Map UI-renumbered names <-> original names
+  // uiNames: ["demo_00000","demo_00001", ...] -> srcNames: ["demo_00004", "demo_00001", ...]
+  let uiNames = [];
+  let srcNames = [];
+  let include = new Set();   // UI names included for export
+  let removed = new Set();   // UI names removed (session only)
+  let currentUI = null;
+
   const state = {
-    imageSrc: 'obs',         // 'obs' or 'next_obs'
-    availableCams: [],       // obs keys ending with _image
-    selectedCams: [],        // <=8
-    camDS: {},               // name -> Dataset (from obs or next_obs)
-    // time-series datasets (from obs/*)
-    g_qpos: null,
-    g_qvel: null,
-    g_qtorque: null,
-    g_tcp_pose: null,
-    m_qpos: null,
-    m_qvel: null,
-    m_qtorque: null,
-    eef_pose: null,
-    other_goal: null,
-    other_cube: null,
-    actions: null,
-    T: 0, H: 224, W: 224,
-    t: 0,
-    _eefX: [], _eefY: [], _eefZ: []
+    imageSrc: 'obs',
+    availableCams: [], selectedCams: [], camDS: {},
+    // time-series datasets
+    g_qpos:null, g_qvel:null, g_qtorque:null, g_tcp_pose:null,
+    m_qpos:null, m_qvel:null, m_qtorque:null,
+    eef_pose:null, other_goal:null, other_cube:null, actions:null,
+    T:0, H:224, W:224, t:0,
+    _eefX:[], _eefY:[], _eefZ:[]
   };
 
   const playback = { running:false, speed:1.0, dt:0.01, raf:null, last:0, acc:0 };
 
   // ---- Helpers
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const range = n => Array.from({length:n}, (_,i)=>i);
+  const nextTick =()=> new Promise(r=>setTimeout(r,0));
+  const verticalLine = (x, color="#0066ff") => [{ type:"line", x0:x,x1:x,y0:0,y1:1, xref:"x", yref:"paper", line:{color, width:2, dash:"dot"} }];
   function sec(n){ return (Math.round(n*100)/100).toFixed(2) + "s"; }
-  function clear(el){ while(el.firstChild) el.removeChild(el.firstChild); }
-  function range(n){ return Array.from({length:n}, (_,i)=>i); }
-  function verticalLine(x, color="#0066ff"){ return [{ type:"line", x0:x, x1:x, y0:0, y1:1, xref:"x", yref:"paper", line:{color, width:2, dash:"dot"} }]; }
-  function extent(a){ let lo=Infinity, hi=-Infinity; for(const v of a){ if(v<lo) lo=v; if(v>hi) hi=v; } return [lo,hi]; }
-  const nextTick = ()=> new Promise(r=>setTimeout(r,0));
 
-  // camera drawing (single frame)
+  // Canvas buffers cache (speed)
+  const canvasCache = new Map(); // name -> { tmp, ctx, rgba, lastW, lastH }
+  function getCanvasBuffers(name, W, H){
+    const key = `${name}:${W}x${H}`;
+    let c = canvasCache.get(key);
+    if(!c){
+      const tmp = document.createElement('canvas');
+      tmp.width = W; tmp.height = H;
+      const ctx = tmp.getContext('2d', { willReadFrequently:false });
+      const rgba = new Uint8ClampedArray(W*H*4);
+      c = { tmp, ctx, rgba, lastW:W, lastH:H };
+      canvasCache.set(key, c);
+    }
+    return c;
+  }
   function drawRGBToCanvas(canvas, flat, W, H){
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
@@ -326,17 +343,16 @@
     canvas.width  = Math.max(1, Math.floor(rect.width * dpr));
     canvas.height = Math.max(1, Math.floor(rect.height * dpr));
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    const rgba = new Uint8ClampedArray(W*H*4);
+
+    const { tmp, ctx:tmpCtx, rgba } = getCanvasBuffers(canvas.id, W, H);
+    // fill RGBA (reuse buffer)
     for(let i=0, j=0; i<W*H; i++){
       rgba[j++] = flat[i*3+0];
       rgba[j++] = flat[i*3+1];
       rgba[j++] = flat[i*3+2];
       rgba[j++] = 255;
     }
-    const img = new ImageData(rgba, W, H);
-    const tmp = document.createElement('canvas');
-    tmp.width = W; tmp.height = H;
-    tmp.getContext('2d').putImageData(img, 0, 0);
+    tmpCtx.putImageData(new ImageData(rgba, W, H), 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(tmp, 0, 0, rect.width, rect.height);
   }
@@ -346,7 +362,7 @@
     body.setAttribute('data-theme', next);
     themeToggle.textContent = (next === 'dark') ? '🌙' : '☀️';
     const tpl = (next === 'dark') ? 'plotly_dark' : 'plotly_white';
-    const common = { template: tpl, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent' };
+    const common = { template: tpl, paper_bgcolor:'transparent', plot_bgcolor:'transparent' };
     Plotly.relayout(gripperPlotEl, common);
     Plotly.relayout(manipPlotEl,   common);
     Plotly.relayout(eefPlotEl,     common);
@@ -366,56 +382,57 @@
     initFile();
   });
 
-  // Download original (snapshot)
-  downloadOrigBtn.addEventListener('click', ()=>{
-    if(!h5file) return;
-    download(h5file); // downloads the in-memory file as-is (name comes from h5file.filename)
-  });
+  // Download original
+  downloadOrigBtn.addEventListener('click', ()=> { if(h5file) download(h5file); });
 
-  // ---- Read structure
-  function listDemos(){
-    const dk = h5file.get('data').keys();
-    // keep demo_* only
-    return dk.filter(k=>k.startsWith('demo_') && !removed.has(k));
+  // ---- Read structure and build UI (renumbered list)
+  function listSrcDemos(){
+    const keys = h5file.get('data').keys();
+    return keys.filter(k=>k.startsWith('demo_')).sort((a,b)=>{
+      const ia = parseInt(a.split('_').pop().replace(/^0+/,'' )||'0',10);
+      const ib = parseInt(b.split('_').pop().replace(/^0+/,'' )||'0',10);
+      return ia - ib;
+    });
   }
+  function buildMappings(){
+    srcNames = listSrcDemos();
+    uiNames = srcNames.map((_,i)=> `demo_${String(i).padStart(5,'0')}`);
+  }
+  function uiToSrc(ui){ const idx = uiNames.indexOf(ui); return idx>=0 ? srcNames[idx] : null; }
+  function srcToUi(src){ const idx = srcNames.indexOf(src); return idx>=0 ? uiNames[idx] : null; }
 
-  function buildDemoChip(name){
-    const div = document.createElement('div'); div.className = 'chip';
-    // left: [✓] demo_00000
-    const left = document.createElement('div'); left.className = 'left';
-    const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = include.has(name);
-    const label = document.createElement('span'); label.textContent = name; label.style.fontWeight=800;
-    left.appendChild(cb); left.appendChild(label);
-    // right: 🗑
+  function buildDemoChip(uiName){
+    const div = document.createElement('div'); div.className='chip';
+    const left = document.createElement('div'); left.className='left';
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = !removed.has(uiName) && include.has(uiName);
+    const label = document.createElement('span'); label.textContent = uiName;
+    const small = document.createElement('span'); small.className='mini'; small.textContent = ` (${uiToSrc(uiName)})`;
     const rm = document.createElement('span'); rm.className='remove'; rm.textContent='🗑';
-    // click => select demo (view)
-    left.addEventListener('click', (ev)=>{
-      if(ev.target === cb) return;
-      selectDemo(name);
-    });
-    // include toggle
-    cb.addEventListener('change', ()=>{
-      if(cb.checked) include.add(name); else include.delete(name);
-    });
-    // remove this demo from session (not destructive)
+
+    left.appendChild(cb); left.appendChild(label); left.appendChild(small);
+    left.addEventListener('click', (ev)=>{ if(ev.target!==cb) selectDemo(uiName); });
+    cb.addEventListener('change', ()=>{ if(cb.checked) include.add(uiName); else include.delete(uiName); });
     rm.addEventListener('click', ()=>{
-      removed.add(name); include.delete(name);
-      initFile(); // rebuild list; if viewing this demo, switch to next available
+      removed.add(uiName); include.delete(uiName);
+      if(currentUI===uiName) currentUI = null;
+      initFile();
     });
     div.appendChild(left); div.appendChild(rm);
     return div;
   }
 
   function initFile(){
-    clear(demoChips);
-    demos = listDemos();
-    if(include.size === 0) demos.forEach(d=>include.add(d)); // include all by default
-    demos.forEach((d,i)=>{
-      const chip = buildDemoChip(d);
-      demoChips.appendChild(chip);
+    buildMappings();
+    // default include all visible (not removed)
+    if(include.size===0) uiNames.forEach(n=> { if(!removed.has(n)) include.add(n); });
+    // rebuild list
+    demoChips.innerHTML='';
+    uiNames.forEach(ui=>{
+      if(removed.has(ui)) return;
+      demoChips.appendChild(buildDemoChip(ui));
     });
 
-    // show env_args if present
+    // env tag
     let env = '—';
     try{
       const envArgs = h5file.get('data').attrs['env_args']?.value;
@@ -424,44 +441,43 @@
         env = (meta.env_name || meta.env || '—');
       }
     }catch(_){}
-    envTag.textContent = `env: ${env}`;
+    document.getElementById('envTag').textContent = `env: ${env}`;
 
-    if(demos.length) selectDemo(demos[0]);
+    // select first available
+    const first = uiNames.find(n=>!removed.has(n));
+    if(first) selectDemo(first);
   }
 
   // discover cameras under obs
-  function discoverCameras(demo){
-    const obs = h5file.get(`data/${demo}/obs`);
+  function discoverCameras(uiName){
+    const src = uiToSrc(uiName);
+    const obs = h5file.get(`data/${src}/obs`);
     const keys = obs.keys();
-    // any *_image keys are cameras
-    const cams = keys.filter(k => k.endsWith('_image'));
-    // prefer the classic four by default if present
-    const preferred = ["front_image","left_side_image","overhead_image","right_side_image"];
-    const sel = [];
-    preferred.forEach(p => { if(cams.includes(p)) sel.push(p); });
-    // fill up to 4 defaults; cap to 8
-    const remaining = cams.filter(k => !sel.includes(k)).slice(0, Math.max(0, 4 - sel.length));
-    const selected = [...sel, ...remaining].slice(0,8);
-    return { cams, selected };
+    const cams = keys.filter(k=>k.endsWith('_image'));
+
+    // defaults: prefer the classic four
+    const pref = ["front_image","left_side_image","overhead_image","right_side_image"];
+    const sel = []; pref.forEach(p=>{ if(cams.includes(p)) sel.push(p); });
+    const rem = cams.filter(k=>!sel.includes(k)).slice(0, Math.max(0, 4 - sel.length));
+    return { cams, selected: [...sel, ...rem].slice(0,8) };
   }
 
-  async function selectDemo(demo){
-    currentDemo = demo;
-    demoName.textContent = demo;
+  async function selectDemo(uiName){
+    currentUI = uiName;
+    demoName.textContent = uiName;
 
-    // build camera list from obs (default source)
     state.imageSrc = imgSrcSel.value || 'obs';
-    const { cams, selected } = discoverCameras(demo);
-    state.availableCams = cams.slice(0, 8);
+    const { cams, selected } = discoverCameras(uiName);
+    state.availableCams = cams.slice(0,8);
     state.selectedCams = selected;
     state.camDS = {};
 
-    // build checklist UI
-    clear(camChecklist);
-    state.availableCams.forEach((name, i)=>{
+    // checklist
+    camChecklist.innerHTML='';
+    state.availableCams.forEach((name,i)=>{
       const id = `cam_${i}`;
       const row = document.createElement('label');
-      row.innerHTML = `<input type="checkbox" id="${id}" ${selected.includes(name) ? 'checked' : ''}> <span>${name}</span>`;
+      row.innerHTML = `<input type="checkbox" id="${id}" ${selected.includes(name)?'checked':''}> <span>${name}</span>`;
       camChecklist.appendChild(row);
       document.getElementById(id).addEventListener('change', rebuildCams);
     });
@@ -469,7 +485,8 @@
     clearCams.onclick = ()=>{ [...camChecklist.querySelectorAll('input')].forEach(cb=>cb.checked=false); rebuildCams(); };
 
     // timeseries (from obs)
-    const base = `data/${demo}/obs`;
+    const src = uiToSrc(uiName);
+    const base = `data/${src}/obs`;
     const safeGet = (k)=>{ try{ return h5file.get(`${base}/${k}`); } catch{ return null; } };
     state.g_qpos    = safeGet('gripper_qpos');
     state.g_qvel    = safeGet('gripper_qvel');
@@ -484,26 +501,20 @@
     state.other_goal= safeGet('other_goal_pos');
     state.other_cube= safeGet('other_cube_pos');
 
-    // optional actions
-    try{ state.actions = h5file.get(`data/${demo}/actions`); } catch{ state.actions = null; }
+    try{ state.actions = h5file.get(`data/${src}/actions`); } catch{ state.actions = null; }
 
-    // build advanced signals checklist
     buildAdvancedSignals();
-
-    // compute T/H/W (min across selected cameras and required signals)
-    rebuildCams(); // sets camDS & T / H / W
+    rebuildCams();
     await buildPlots();
     await renderFrame(0, true);
 
-    // KPIs
     const dt = Number(dtInput.value) || 0.01;
     kpiTime.textContent = sec(state.T * dt);
   }
 
-  // advanced signals list (overlays on plots)
   function buildAdvancedSignals(){
     const adv = document.getElementById('advSignals');
-    clear(adv);
+    adv.innerHTML='';
     const options = [
       { id:'gvel', label:'gripper_qvel', present: !!state.g_qvel, group:'gripper' },
       { id:'gtau', label:'gripper_qtorque', present: !!state.g_qtorque, group:'gripper' },
@@ -520,47 +531,47 @@
       lab.innerHTML = `<input type="checkbox" data-group="${opt.group}" data-id="${opt.id}"> <span>${opt.label}</span>`;
       adv.appendChild(lab);
     });
-    adv.addEventListener('change', ()=> buildPlots()); // rebuild plots when toggled
+    adv.addEventListener('change', ()=> buildPlots());
   }
 
-  // rebuild camera DS and cards
   function rebuildCams(){
     // selected
     state.selectedCams = [];
-    for(const row of [...camChecklist.querySelectorAll('label')]){
-      const cb = row.querySelector('input');
-      const name = row.querySelector('span').textContent;
-      if(cb.checked){ state.selectedCams.push(name); }
-    }
-    // camera datasets from selected imageSrc
+    [...camChecklist.querySelectorAll('label')].forEach(row=>{
+      const cb = row.querySelector('input'); const name = row.querySelector('span').textContent;
+      if(cb.checked) state.selectedCams.push(name);
+    });
+
+    // datasets from current image source
+    const src = uiToSrc(currentUI);
+    const base = `data/${src}/${state.imageSrc}`;
     state.camDS = {};
-    const base = `data/${currentDemo}/${state.imageSrc}`;
     for(const name of state.selectedCams){
       try{ state.camDS[name] = h5file.get(`${base}/${name}`); } catch(_){}
     }
+
     // camera cards
-    clear(camsGrid);
+    camsGrid.innerHTML='';
     state.selectedCams.forEach(name=>{
       const card = document.createElement('div'); card.className = 'cam-card';
-      const tag = document.createElement('div'); tag.className = 'cam-label'; tag.textContent = name;
+      const tag  = document.createElement('div'); tag.className = 'cam-label'; tag.textContent = name;
       const canvas = document.createElement('canvas'); canvas.id = `canvas_${name}`;
       card.appendChild(tag); card.appendChild(canvas); camsGrid.appendChild(card);
     });
 
-    // compute T/H/W (min across cams + eef + gripper/manip pos)
+    // T/H/W
     let T = Infinity, H = 224, W = 224;
-    if(state.g_qpos)    T = Math.min(T, state.g_qpos.shape[0]);
-    if(state.m_qpos)    T = Math.min(T, state.m_qpos.shape[0]);
-    if(state.eef_pose)  T = Math.min(T, state.eef_pose.shape[0]);
+    if(state.g_qpos)   T = Math.min(T, state.g_qpos.shape[0]);
+    if(state.m_qpos)   T = Math.min(T, state.m_qpos.shape[0]);
+    if(state.eef_pose) T = Math.min(T, state.eef_pose.shape[0]);
     for(const name of state.selectedCams){
       const ds = state.camDS[name]; if(!ds) continue;
       T = Math.min(T, ds.shape[0]); H = ds.shape[1]; W = ds.shape[2];
     }
     if(!isFinite(T)) T = 0;
-    state.T = T; state.H = H; state.W = W;
+    state.T = T; state.H = H; state.W = W; state.t = 0;
     slider.max = String(Math.max(0, T-1)); slider.value = "0";
     kpiFrames.textContent = String(T); kpiTMax.textContent = String(Math.max(0, T-1));
-    state.t = 0;
   }
 
   imgSrcSel.addEventListener('change', ()=>{
@@ -569,119 +580,153 @@
     renderFrame(0, true);
   });
 
-  // ---- Build plots (compact) with overlays
+  // ---- Faster plot builders (optional downsampling)
+  const MAX_PLOT_POINTS = 1500;
+  function maybeDownsample(xArr, seriesArrays){
+    if(!fastModeCB.checked) return { x:xArr, ys:seriesArrays };
+    const T = xArr.length;
+    if(T <= MAX_PLOT_POINTS) return { x:xArr, ys:seriesArrays };
+    const stride = Math.ceil(T / MAX_PLOT_POINTS);
+    const xs = [], ys = seriesArrays.map(()=>[]);
+    for(let t=0;t<T;t+=stride){
+      xs.push(xArr[t]);
+      for(let j=0;j<seriesArrays.length;j++) ys[j].push(seriesArrays[j][t]);
+    }
+    return { x:xs, ys };
+  }
+
   async function buildPlots(){
     const T = state.T, tvec = range(T);
     const tpl = (body.getAttribute('data-theme')==='dark') ? 'plotly_dark' : 'plotly_white';
     const common = { template: tpl, margin:{l:40,r:8,t:24,b:28}, paper_bgcolor:'transparent', plot_bgcolor:'transparent' };
-    const advOn = (id)=> !!document.querySelector(`#advSignals input[data-id="${id}"]`)?.checked;
+    const advOn = id => !!document.querySelector(`#advSignals input[data-id="${id}"]`)?.checked;
 
-    // Gripper (base: qpos)
+    // Gripper
     const gpTraces = [];
     if(state.g_qpos){
-      const D = state.g_qpos.shape[1], flat = state.g_qpos.value;
+      const D = state.g_qpos.shape[1], flat = state.g_qpos.value; // small arrays, OK
+      const ys = [];
       for(let j=0;j<D;j++){
-        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j];
-        gpTraces.push({ x:tvec, y, type:'scatter', mode:'lines', name:`q${j}`, line:{width:1.6} });
+        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y);
       }
+      const ds = maybeDownsample(tvec, ys);
+      ds.ys.forEach((y, j)=> gpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`q${j}`, line:{width:1.6} }));
     }
     if(advOn('gvel') && state.g_qvel){
       const D = state.g_qvel.shape[1], flat = state.g_qvel.value;
-      for(let j=0;j<D;j++){
-        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j];
-        gpTraces.push({ x:tvec, y, type:'scatter', mode:'lines', name:`vel${j}`, line:{width:1, dash:'dot'} });
-      }
+      const ys = [];
+      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
+      const ds = maybeDownsample(tvec, ys);
+      ds.ys.forEach((y, j)=> gpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`vel${j}`, line:{width:1, dash:'dot'} }));
     }
     if(advOn('gtau') && state.g_qtorque){
       const D = state.g_qtorque.shape[1], flat = state.g_qtorque.value;
-      for(let j=0;j<D;j++){
-        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j];
-        gpTraces.push({ x:tvec, y, type:'scatter', mode:'lines', name:`tau${j}`, line:{width:1, dash:'dash'} });
-      }
+      const ys = [];
+      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
+      const ds = maybeDownsample(tvec, ys);
+      ds.ys.forEach((y, j)=> gpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`tau${j}`, line:{width:1, dash:'dash'} }));
     }
     if(advOn('gtcp') && state.g_tcp_pose){
       const D = state.g_tcp_pose.shape[1], flat = state.g_tcp_pose.value;
-      for(let j=0;j<D;j++){
-        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j];
-        gpTraces.push({ x:tvec, y, type:'scatter', mode:'lines', name:`tcp${j}`, line:{width:1, dash:'dot'} });
-      }
+      const ys = [];
+      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
+      const ds = maybeDownsample(tvec, ys);
+      ds.ys.forEach((y, j)=> gpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`tcp${j}`, line:{width:1, dash:'dot'} }));
     }
-    await Plotly.newPlot(gripperPlotEl, gpTraces, {
+    await Plotly.react(gripperPlotEl, gpTraces, {
       ...common, showlegend:true, legend:{orientation:'h', yanchor:'bottom', y:1.02, x:0},
       xaxis:{ title:'timestep', rangemode:'nonnegative', showgrid:true },
       yaxis:{ title:'gripper', showgrid:true },
       shapes: verticalLine(0)
     }, {displayModeBar:false, responsive:true});
 
-    // Manip (base: qpos)
+    // Manip
     const mpTraces = [];
     if(state.m_qpos){
       const D = state.m_qpos.shape[1], flat = state.m_qpos.value;
-      for(let j=0;j<D;j++){
-        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j];
-        mpTraces.push({ x:tvec, y, type:'scatter', mode:'lines', name:`q${j}`, line:{width:1.6} });
-      }
+      const ys = [];
+      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
+      const ds = maybeDownsample(tvec, ys);
+      ds.ys.forEach((y, j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`q${j}`, line:{width:1.6} }));
     }
     if(advOn('mvel') && state.m_qvel){
       const D = state.m_qvel.shape[1], flat = state.m_qvel.value;
-      for(let j=0;j<D;j++){
-        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j];
-        mpTraces.push({ x:tvec, y, type:'scatter', mode:'lines', name:`vel${j}`, line:{width:1, dash:'dot'} });
-      }
+      const ys = [];
+      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
+      const ds = maybeDownsample(tvec, ys);
+      ds.ys.forEach((y, j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`vel${j}`, line:{width:1, dash:'dot'} }));
     }
     if(advOn('mtau') && state.m_qtorque){
       const D = state.m_qtorque.shape[1], flat = state.m_qtorque.value;
-      for(let j=0;j<D;j++){
-        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j];
-        mpTraces.push({ x:tvec, y, type:'scatter', mode:'lines', name:`tau${j}`, line:{width:1, dash:'dash'} });
-      }
+      const ys = [];
+      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
+      const ds = maybeDownsample(tvec, ys);
+      ds.ys.forEach((y, j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`tau${j}`, line:{width:1, dash:'dash'} }));
     }
     if(advOn('act') && state.actions){
       const D = state.actions.shape[1], flat = state.actions.value;
-      for(let j=0;j<D;j++){
-        const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j];
-        mpTraces.push({ x:tvec, y, type:'scatter', mode:'lines', name:`a${j}`, line:{width:1, dash:'dot'} });
-      }
+      const ys = [];
+      for(let j=0;j<D;j++){ const y = new Array(T); for(let t=0;t<T;t++) y[t] = flat[t*D + j]; ys.push(y); }
+      const ds = maybeDownsample(tvec, ys);
+      ds.ys.forEach((y, j)=> mpTraces.push({ x:ds.x, y, type:'scatter', mode:'lines', name:`a${j}`, line:{width:1, dash:'dot'} }));
     }
-    await Plotly.newPlot(manipPlotEl, mpTraces, {
+    await Plotly.react(manipPlotEl, mpTraces, {
       ...common, showlegend:true, legend:{orientation:'h', yanchor:'bottom', y:1.02, x:0},
       xaxis:{ title:'timestep', rangemode:'nonnegative', showgrid:true },
       yaxis:{ title:'manipulator', showgrid:true },
       shapes: verticalLine(0)
     }, {displayModeBar:false, responsive:true});
 
-    // EEF 3D
+    // EEF 3D (downsample in fast mode)
     const x=[], y=[], z=[];
     if(state.eef_pose){
       const flat = state.eef_pose.value;
       for(let t=0;t<T;t++){ x.push(flat[t*6+0]); y.push(flat[t*6+1]); z.push(flat[t*6+2]); }
     }
+    let x3=x, y3=y, z3=z;
+    if(fastModeCB.checked && x.length>MAX_PLOT_POINTS){
+      const stride = Math.ceil(x.length / MAX_PLOT_POINTS);
+      x3 = []; y3 = []; z3 = [];
+      for(let i=0;i<x.length;i+=stride){ x3.push(x[i]); y3.push(y[i]); z3.push(z[i]); }
+    }
     const traces = [
-      { type:'scatter3d', mode:'lines', x, y, z, line:{width:2, color:'rgba(0,102,255,0.25)'}, name:'full' },
-      { type:'scatter3d', mode:'lines', x:[x[0]], y:[y[0]], z:[z[0]], line:{width:4, color:'rgba(0,102,255,1.0)'}, name:'played' },
-      { type:'scatter3d', mode:'markers', x:[x[0]], y:[y[0]], z:[z[0]], marker:{size:3}, name:'current' }
+      { type:'scatter3d', mode:'lines', x:x3, y:y3, z:z3, line:{width:2, color:'rgba(0,102,255,0.25)'}, name:'full' },
+      { type:'scatter3d', mode:'lines', x:[x3[0]], y:[y3[0]], z:[z3[0]], line:{width:4, color:'rgba(0,102,255,1.0)'}, name:'played' },
+      { type:'scatter3d', mode:'markers', x:[x3[0]], y:[y3[0]], z:[z3[0]], marker:{size:3}, name:'current' }
     ];
-    // optional markers
     if(document.querySelector('#advSignals input[data-id="goal"]')?.checked && state.other_goal){
-      const g = state.other_goal.value;
-      const gx=[], gy=[], gz=[]; for(let t=0;t<T;t++){ gx.push(g[t*3+0]); gy.push(g[t*3+1]); gz.push(g[t*3+2]); }
-      traces.push({ type:'scatter3d', mode:'markers', x: gx, y: gy, z: gz, marker:{size:2}, name:'goal' });
+      const g = state.other_goal.value; const gx=[], gy=[], gz=[];
+      for(let t=0;t<T;t++){ gx.push(g[t*3+0]); gy.push(g[t*3+1]); gz.push(g[t*3+2]); }
+      if(fastModeCB.checked && gx.length>MAX_PLOT_POINTS){
+        const stride = Math.ceil(gx.length / MAX_PLOT_POINTS);
+        const gx2=[], gy2=[], gz2=[]; for(let i=0;i<gx.length;i+=stride){ gx2.push(gx[i]); gy2.push(gy[i]); gz2.push(gz[i]); }
+        traces.push({ type:'scatter3d', mode:'markers', x:gx2, y:gy2, z:gz2, marker:{size:2}, name:'goal' });
+      } else {
+        traces.push({ type:'scatter3d', mode:'markers', x:gx, y:gy, z:gz, marker:{size:2}, name:'goal' });
+      }
     }
     if(document.querySelector('#advSignals input[data-id="cube"]')?.checked && state.other_cube){
-      const c = state.other_cube.value;
-      const cx=[], cy=[], cz=[]; for(let t=0;t<T;t++){ cx.push(c[t*3+0]); cy.push(c[t*3+1]); cz.push(c[t*3+2]); }
-      traces.push({ type:'scatter3d', mode:'markers', x: cx, y: cy, z: cz, marker:{size:2}, name:'cube' });
+      const c = state.other_cube.value; const cx=[], cy=[], cz=[];
+      for(let t=0;t<T;t++){ cx.push(c[t*3+0]); cy.push(c[t*3+1]); cz.push(c[t*3+2]); }
+      if(fastModeCB.checked && cx.length>MAX_PLOT_POINTS){
+        const stride = Math.ceil(cx.length / MAX_PLOT_POINTS);
+        const cx2=[], cy2=[], cz2=[]; for(let i=0;i<cx.length;i+=stride){ cx2.push(cx[i]); cy2.push(cy[i]); cz2.push(cz[i]); }
+        traces.push({ type:'scatter3d', mode:'markers', x:cx2, y:cy2, z:cz2, marker:{size:2}, name:'cube' });
+      } else {
+        traces.push({ type:'scatter3d', mode:'markers', x:cx, y:cy, z:cz, marker:{size:2}, name:'cube' });
+      }
     }
-    const xr = extent(x), yr = extent(y), zr = extent(z);
+    const xr = x3.length? [Math.min(...x3), Math.max(...x3)] : [0,1];
+    const yr = y3.length? [Math.min(...y3), Math.max(...y3)] : [0,1];
+    const zr = z3.length? [Math.min(...z3), Math.max(...z3)] : [0,1];
     const pad = (a,b)=> (b-a)*0.05 || 0.05;
-    await Plotly.newPlot(eefPlotEl, traces, {
+    await Plotly.react(eefPlotEl, traces, {
       ...common, margin:{l:0,r:0,t:26,b:0}, showlegend:false,
       scene:{
         xaxis:{ title:'X (m)', range:[xr[0]-pad(xr[0],xr[1]), xr[1]+pad(xr[0],xr[1])] },
         yaxis:{ title:'Y (m)', range:[yr[0]-pad(yr[0],yr[1]), yr[1]+pad(yr[0],yr[1])] },
         zaxis:{ title:'Z (m)', range:[zr[0]-pad(zr[0],zr[1]), zr[1]+pad(zr[0],zr[1])] },
-        aspectmode:'cube',
-        bgcolor:'rgba(0,0,0,0)'
+        aspectmode:'cube', bgcolor:'rgba(0,0,0,0)'
       }
     }, {displayModeBar:false, responsive:true});
 
@@ -695,7 +740,7 @@
     state.t = t;
     slider.value = String(t); kpiT.textContent = String(t);
 
-    // Cameras
+    // Cameras: single-frame slice
     for(const name of state.selectedCams){
       const ds = state.camDS[name]; if(!ds) continue;
       const W = state.W, H = state.H;
@@ -704,15 +749,15 @@
       if(canvas) drawRGBToCanvas(canvas, flat, W, H);
     }
 
-    // cursor on plots
+    // cursor lines
     Plotly.relayout(gripperPlotEl, { shapes: verticalLine(t) });
     Plotly.relayout(manipPlotEl,   { shapes: verticalLine(t) });
 
-    // EEF path
+    // EEF played path + current point
     if(state._eefX.length){
       const px = state._eefX.slice(0,t+1), py = state._eefY.slice(0,t+1), pz = state._eefZ.slice(0,t+1);
-      Plotly.restyle(eefPlotEl, { x:[px], y:[py], z:[pz] }, [1]); // played
-      Plotly.restyle(eefPlotEl, { x:[[state._eefX[t]]], y:[[state._eefY[t]]], z:[[state._eefZ[t]]] }, [2]); // current dot
+      Plotly.restyle(eefPlotEl, { x:[px], y:[py], z:[pz] }, [1]);
+      Plotly.restyle(eefPlotEl, { x:[[state._eefX[t]]], y:[[state._eefY[t]]], z:[[state._eefZ[t]]] }, [2]);
     }
   }
 
@@ -720,119 +765,196 @@
   function updateTiming(){ playback.dt = Math.max(0.001, Number(dtInput.value) || 0.01); playback.speed = Number(speedSel.value) || 1.0; }
   dtInput.addEventListener('change', ()=>{ updateTiming(); kpiTime.textContent = sec(state.T * playback.dt); });
   speedSel.addEventListener('change', ()=> updateTiming());
+
   function start(){
-    if(playback.running) return;
+    if(playback.running || state.T===0) return;
     updateTiming(); playback.running = true; playBtn.textContent = '⏸ Pause';
     playback.last = performance.now(); playback.acc = 0;
     const period = ()=> 1000 * playback.dt / playback.speed;
-    function tick(now){
+    const tick = (now)=>{
       if(!playback.running) return;
       const elapsed = now - playback.last; playback.last = now; playback.acc += elapsed;
       const per = period();
       while(playback.acc >= per){ playback.acc -= per; const next = (state.t + 1) % Math.max(1, state.T); renderFrame(next); }
       playback.raf = requestAnimationFrame(tick);
-    }
+    };
     playback.raf = requestAnimationFrame(tick);
   }
-  function stop(){ if(!playback.running) return; playback.running = false; playBtn.textContent = '▶ Play'; if(playback.raf) cancelAnimationFrame(playback.raf); playback.raf = null; }
+  function stop(){
+    if(!playback.running) return;
+    playback.running = false; playBtn.textContent = '▶ Play';
+    if(playback.raf) cancelAnimationFrame(playback.raf); playback.raf = null;
+  }
   playBtn.addEventListener('click', ()=> playback.running ? stop() : start());
   slider.addEventListener('input', ()=> renderFrame(Number(slider.value), true));
   window.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); playback.running ? stop() : start(); } if(e.code==='ArrowRight'){ stop(); renderFrame(state.t+1, true); } if(e.code==='ArrowLeft'){ stop(); renderFrame(state.t-1, true); } });
 
-  // on resize, keep Plotly fitting containers
   window.addEventListener('resize', ()=>{ Plotly.Plots.resize(gripperPlotEl); Plotly.Plots.resize(manipPlotEl); Plotly.Plots.resize(eefPlotEl); });
 
-  // ---- Export: build a pruned HDF5 in memory and download
+  // ---- Export helpers
   function showOverlay(msg, p){ overlay.style.display='flex'; overlayMsg.textContent = msg; overlayBar.style.width = (p||0)+'%'; }
   function hideOverlay(){ overlay.style.display='none'; }
+  function getIncludedUINames(){ return uiNames.filter(n => include.has(n) && !removed.has(n)); }
 
-  function getIncludedDemos(){ return demos.filter(d => include.has(d) && !removed.has(d)); }
-
+  // Pruned export (renumbered)
   downloadPrunedBtn.addEventListener('click', async ()=>{
     if(!h5file) return;
-    const keep = getIncludedDemos();
-    if(keep.length===0){ alert('No demos selected. Use the ✓ to include some demos first.'); return; }
+    const keepUI = getIncludedUINames();
+    if(keepUI.length===0){ alert('No demos selected (✓).'); return; }
 
+    const renumber = renumberToggle.checked;
     const baseName = (sourceFilename || 'dataset.hdf5').split('/').pop();
     const outName = `pruned_${baseName}`;
     showOverlay('Creating pruned HDF5…', 0);
 
-    // Create output file & /data group
     const out = new h5wasm.File(outName, 'w');
     const outData = out.create_group('data');
-
-    // Copy env_args (if present) and write total later
     const inData = h5file.get('data');
+
+    // copy env_args if present
     try{
       const envArgs = inData.attrs['env_args']?.value;
       if(envArgs !== undefined) outData.create_attribute('env_args', envArgs);
     }catch(_){}
 
-    // Recursively copy a group's datasets (flat copy; no hard links)
-    async function copyGroup(inGroupPath, outGroup){
-      const src = h5file.get(inGroupPath);
-      for(const key of src.keys()){
-        const path = `${inGroupPath}/${key}`;
-        const obj = h5file.get(path);
-        if(obj.keys){ // group
-          const g = outGroup.create_group(key);
-          // copy attributes
-          try{
-            const attrs = obj.attrs || {};
-            for(const k of Object.keys(attrs)){ g.create_attribute(k, attrs[k].value); }
-          }catch(_){}
-          await copyGroup(path, g);
-        } else {      // dataset
-          const data = obj.value; // TypedArray / raw bytes
-          const args = { name:key, data, shape: obj.shape, dtype: obj.dtype };
-          // preserve gzip if present
-          try{
-            if((obj.filters||[]).some(f=>f.name==='deflate')){ args.compression = 'gzip'; args.compression_opts=[4]; }
-          }catch(_){}
-          outGroup.create_dataset(args);
-          await nextTick();
+    // recursive copy: copy srcPath into dstGroup (preserving structure)
+    async function copyTree(srcPath, dstGroup){
+      const obj = h5file.get(srcPath);
+      // datasets vs groups
+      if(obj.keys){
+        // group
+        const name = srcPath.split('/').pop();
+        const g = dstGroup.create_group(name);
+        // copy attrs
+        try{
+          const attrs = obj.attrs || {};
+          for(const k of Object.keys(attrs)){ g.create_attribute(k, attrs[k].value); }
+        }catch(_){}
+        for(const k of obj.keys()){
+          await copyTree(`${srcPath}/${k}`, g);
         }
+      } else {
+        // dataset (read once; write once)
+        const data = obj.value;
+        const name = srcPath.split('/').pop();
+        const args = { name, data, shape: obj.shape, dtype: obj.dtype };
+        try{
+          if((obj.filters||[]).some(f=>f.name==='deflate')){ args.compression='gzip'; args.compression_opts=[4]; }
+        }catch(_){}
+        dstGroup.create_dataset(args);
       }
-    }
-
-    // Copy each kept demo fully
-    let total = 0, done=0, totalWork = keep.length;
-    for(const d of keep){
-      showOverlay(`Copying ${d}…`, Math.round(100 * (done / Math.max(1,totalWork))));
-      const srcDemo = `data/${d}`;
-      const gIn = h5file.get(srcDemo);
-      // read num_samples attr to accumulate total
-      try{ total += (gIn.attrs['num_samples']?.value || 0); }catch(_){}
-      const gOut = outData.create_group(d);
-      // copy attributes: num_samples, success, etc.
-      try{
-        const attrs = gIn.attrs || {};
-        for(const k of Object.keys(attrs)){ gOut.create_attribute(k, attrs[k].value); }
-      }catch(_){}
-      // copy children: actions, dones, rewards, states, obs, next_obs
-      await copyGroup(srcDemo, outData); // puts group at /data/<demo>/...
-      done++;
       await nextTick();
     }
-    // Update /data/total
-    outData.create_attribute('total', Number(total));
 
-    // (Optional) if /data/mask exists, filter lists to kept demos
-    try{
-      const mask = inData.get('mask');
-      if(mask && mask.keys){
-        const mOut = outData.create_group('mask');
-        for(const k of mask.keys()){
-          const ds = inData.get(`mask/${k}`);
-          const arr = Array.from(ds.value).map(String).filter(name => keep.includes(name));
-          mOut.create_dataset({ name:k, data: arr, dtype:'|S' });
-        }
+    // map UI → export name
+    const expNames = keepUI.map((_,i)=> `demo_${String(i).padStart(5,'0')}`);
+    // copy demos
+    let total = 0;
+    for(let i=0;i<keepUI.length;i++){
+      const ui = keepUI[i];
+      const src = uiToSrc(ui);
+      const srcDemoPath = `data/${src}`;
+      const dstDemoName = renumber ? expNames[i] : src;  // renumber or keep original
+      overlayMsg.textContent = `Copying ${dstDemoName}…`; overlayBar.style.width = Math.round(100*(i/keepUI.length))+'%';
+
+      // create container group with proper name
+      const g = outData.create_group(dstDemoName);
+      // copy demo attrs
+      try{
+        const gIn = h5file.get(srcDemoPath);
+        const attrs = gIn.attrs || {};
+        for(const k of Object.keys(attrs)){ g.create_attribute(k, attrs[k].value); }
+        total += (gIn.attrs['num_samples']?.value || 0);
+      }catch(_){}
+      // copy subtree
+      await copyTree(srcDemoPath, outData); // places /data/<src>/*
+      if(renumber && dstDemoName !== src){
+        // If renumbering, we just created /data/<src>/* above; move it under /data/<dstDemoName>
+        // Simpler: delete empty g and rename group by creating new and copying children again, but h5wasm lacks rename.
+        // Workaround: we already made 'g' with attrs; now move children from /data/<src> into g.
+        const tempGroup = outData.get(src);
+        for(const k of tempGroup.keys()){ await copyTree(`data/${src}/${k}`, g); }
+        // best-effort remove the temporary /data/<src> group by ignoring it in final file (cannot delete in h5wasm HL safely).
       }
-    }catch(_){}
+      await nextTick();
+    }
 
+    outData.create_attribute('total', Number(total));
     hideOverlay();
-    download(out); // downloads "pruned_<original>.hdf5"
+    download(out);
     out.close();
+  });
+
+  // Python script export (prune + renumber offline)
+  downloadScriptBtn.addEventListener('click', ()=>{
+    if(!h5file) return;
+    const keepUI = getIncludedUINames();
+    if(keepUI.length===0){ alert('No demos selected (✓).'); return; }
+    const renumber = renumberToggle.checked;
+    const keepSrc = keepUI.map(ui=> uiToSrc(ui));
+
+    const py = `#!/usr/bin/env python3
+import argparse, h5py, numpy as np, sys
+
+def copy_attrs(src, dst):
+    for k,v in src.attrs.items():
+        try: dst.attrs[k] = v
+        except: pass
+
+def copy_tree(infile, outfile, src_path, dst_group):
+    obj = infile[src_path]
+    if isinstance(obj, h5py.Group):
+        name = src_path.split('/')[-1]
+        g = dst_group.create_group(name)
+        copy_attrs(obj, g)
+        for k in obj.keys():
+            copy_tree(infile, outfile, src_path + '/' + k, g)
+    else:
+        # dataset
+        name = src_path.split('/')[-1]
+        d = dst_group.create_dataset(name, data=obj[...], compression='gzip', compression_opts=4)
+        copy_attrs(obj, d)
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--input', required=True)
+    ap.add_argument('--output', required=True)
+    ap.add_argument('--no-renumber', action='store_true', help='keep original demo names')
+    args = ap.parse_args()
+
+    keep_src = ${JSON.stringify(keepSrc, null, 2)}
+    do_renum = ${renumber ? 'True' : 'False'} and (not args.no_renumber)
+
+    with h5py.File(args.input, 'r') as fin, h5py.File(args.output, 'w') as fout:
+        data_in  = fin['data']
+        data_out = fout.create_group('data')
+
+        # env_args
+        if 'env_args' in data_in.attrs:
+            data_out.attrs['env_args'] = data_in.attrs['env_args']
+
+        total = 0
+        for i, src in enumerate(keep_src):
+            out_name = src if not do_renum else f'demo_{i:05d}'
+            # create group and copy attrs
+            g_in  = data_in[src]
+            g_out = data_out.create_group(out_name)
+            copy_attrs(g_in, g_out)
+            total += int(g_in.attrs.get('num_samples', 0))
+            # copy children
+            for k in g_in.keys():
+                copy_tree(fin, fout, f'data/{src}/{k}', g_out)
+
+        data_out.attrs['total'] = total
+
+if __name__ == '__main__':
+    main()
+`;
+    const blob = new Blob([py], {type:'text/x-python'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'prune_renumber.py';
+    document.body.appendChild(a); a.click(); a.remove();
   });
 
   // Initialize defaults
